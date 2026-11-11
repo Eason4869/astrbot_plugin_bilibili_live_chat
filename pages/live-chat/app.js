@@ -1,4 +1,5 @@
 import { createRoomDebug } from "./debug.js";
+import { createRoomSettings } from "./room-settings.js";
 
 const $ = id => document.getElementById(id);
 const bridge = window.AstrBotPluginView ?? window.AstrBotPluginPage;
@@ -17,6 +18,7 @@ const state = {
   check: null, checkBusy: false, checkTimer: 0, checkEpoch: 0,
 };
 const roomDebug = createRoomDebug({ call, mutate, showStatus, notice, busy: () => state.busy });
+const roomSettings = createRoomSettings({ call, mutate, showStatus, notice, setMediaForm, mediaDirty });
 
 async function call(endpoint, payload) {
   if (!bridge) throw new Error("请从 AstrBot 管理面板的插件视图打开此页面。");
@@ -112,6 +114,7 @@ function showRooms(rooms) {
   for (const [id, row] of state.roomRows) {
     if (!ids.has(id)) {
       roomDebug.remove(id);
+      roomSettings.remove(id);
       row.remove();
       state.roomRows.delete(id);
     }
@@ -124,6 +127,7 @@ function showRooms(rooms) {
       state.roomRows.set(room.id, row);
       setMediaForm(row, room.media.settings);
       roomDebug.attach(row, room.id);
+      roomSettings.attach(row, room);
     }
     if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null);
     const part = name => row.querySelector('[data-part="' + name + '"]');
@@ -152,6 +156,7 @@ function showRooms(rooms) {
     issues.hidden = !room.issues.length;
     showMedia(row, room);
     roomDebug.update(row, room);
+    roomSettings.update(row, room);
   });
 }
 
@@ -163,8 +168,9 @@ function setMediaOptions(form, settings) {
 function setMediaForm(row, settings) {
   const form = row.querySelector('[data-part="media-form"]');
   setMediaOptions(form, settings);
-  for (const field of form.querySelectorAll("input[name]")) {
+  for (const field of form.querySelectorAll("[name]")) {
     if (field.type === "checkbox") field.checked = settings[field.name];
+    else if (field.name === "ignored_regions") field.value = (settings.ignored_regions || []).map(rect => rect.join(",")).join("\n");
     else field.value = settings[field.name] ?? "";
   }
 }
@@ -172,9 +178,25 @@ function setMediaForm(row, settings) {
 function mediaValues(form) {
   return Object.fromEntries([...form.querySelectorAll("[name]")].map(field => [
     field.name,
-    field.type === "checkbox" ? field.checked :
+    field.name === "ignored_regions" ? regions(field.value) : field.type === "checkbox" ? field.checked :
       field.type === "number" ? (field.value === "" ? null : field.valueAsNumber) : field.value,
   ]));
+}
+
+function regions(text) {
+  const values = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => line.split(/[,，\s]+/).map(Number));
+  if (values.length > 8 || values.some(rect => rect.length !== 4 || rect.some(value => !Number.isFinite(value) || value < 0 || value > 100) || rect[0] >= rect[2] || rect[1] >= rect[3])) {
+    throw new Error("忽略区域每行填写 x1,y1,x2,y2，范围 0–100，右下角需大于左上角，最多 8 个区域。");
+  }
+  return values;
+}
+
+function mediaDirty(row, settings) {
+  try {
+    const edited = mediaValues(row.querySelector('[data-part="media-form"]'));
+    return Object.keys(edited).some(key => JSON.stringify(edited[key]) !== JSON.stringify(settings[key]));
+  }
+  catch { return true; }
 }
 
 function showMedia(row, room) {
@@ -197,6 +219,15 @@ function showMedia(row, room) {
 
 function showStatus(snapshot) {
   state.snapshot = snapshot;
+  roomSettings.configure(snapshot, state.visionProviders, [...$("persona").options].filter(option => option.value).map(option => ({ id: option.value, label: option.textContent })));
+  $("decision-status").textContent = snapshot.environment?.decision?.message || "判断接口不可用时沿用原附和规则。";
+  const link = snapshot.link;
+  $("link-version").textContent = "BiliBot" + (link?.version ? " " + link.version : "") + (link?.active ? " · 已启用" : " · 未启用");
+  $("link-status").replaceChildren(...["login", "memory_read", "memory_write"].map((key, index) => {
+    const item = document.createElement("li");
+    item.textContent = ["登录复用", "记忆读取", "记忆写入"][index] + "：" + (link?.[key]?.available ? "接口可用" : "暂不可用") + " · " + (link?.[key]?.message || "等待检查。");
+    return item;
+  }));
   const ffmpeg = snapshot.environment?.ffmpeg;
   $("ffmpeg-status").textContent = ffmpeg?.available
     ? "AstrBot 使用 " + ffmpeg.path
@@ -321,7 +352,9 @@ function values() {
   const output = { KEYWORDS: [...state.words] };
   for (const field of formFields) {
     const key = field.dataset.field;
-    if (key === "IGNORE_UIDS") {
+    if (key === "VOICE_KEYWORD_ALIASES") {
+      output[key] = field.value.split(/\r?\n/).map(word => word.trim()).filter(Boolean);
+    } else if (key === "IGNORE_UIDS") {
       output[key] = field.value.split(/[,，\s]+/).filter(Boolean);
     } else if (field.type === "checkbox") {
       output[key] = field.checked;
@@ -341,7 +374,7 @@ function setForm(settings) {
   for (const field of formFields) {
     const value = settings[field.dataset.field];
     if (field.type === "checkbox") field.checked = value === true;
-    else field.value = Array.isArray(value) ? value.join(", ") : value ?? "";
+    else field.value = Array.isArray(value) ? value.join(field.dataset.field === "VOICE_KEYWORD_ALIASES" ? "\n" : ", ") : value ?? "";
   }
   state.baseline = values();
   hint();
@@ -390,7 +423,7 @@ async function load() {
       state.speechProviders = snapshot.speech_providers ?? [];
       for (const row of state.roomRows.values()) {
         const form = row.querySelector('[data-part="media-form"]');
-        setMediaOptions(form, mediaValues(form));
+        setMediaOptions(form, { stt_provider: form.elements.stt_provider.value, vision_provider: form.elements.vision_provider.value });
       }
       renderOptions($("provider"), snapshot.providers, "选择聊天模型", settings.MODEL_PROVIDER_ID);
       const personas = snapshot.personas.map(id => ({ id, label: id }));
@@ -560,7 +593,8 @@ $("rooms").addEventListener("submit", event => {
   event.preventDefault();
   const row = form.closest("[data-room]");
   const room = row.dataset.room;
-  const settings = mediaValues(form);
+  let settings;
+  try { settings = mediaValues(form); } catch (error) { notice(error.message); return; }
   mutate(async () => {
     const snapshot = await call("rooms/media", { room, settings });
     showStatus(snapshot);
@@ -609,8 +643,7 @@ $("start-selfcheck").addEventListener("click", async () => {
   if (row) {
     const form = row.querySelector('[data-part="media-form"]');
     const saved = state.snapshot.rooms.find(item => item.id === room).media.settings;
-    const values = mediaValues(form);
-    if (Object.keys(values).some(key => values[key] !== saved[key])) {
+    if (mediaDirty(row, saved)) {
       notice("请先保存该房间的音视频设置。");
       return;
     }

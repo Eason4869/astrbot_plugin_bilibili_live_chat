@@ -23,6 +23,30 @@
     "default": {},
     "hint": "建议在直播间对话控制台的房间卡片中修改。"
   },
+  "ROOM_DIALOGUE": {
+    "description": "各房间独立对话配置", "type": "dict", "default": {},
+    "hint": "在房间卡片编辑，未覆盖的项目继承共享配置。"
+  },
+  "VOICE_KEYWORD_ALIASES": {
+    "description": "语音唤醒别名", "type": "list", "default": [],
+    "hint": "填写识别模型常转写出的同音词，只用于语音唤醒，不用于弹幕。"
+  },
+  "CROSS_SOURCE_DEDUP_SECONDS": {
+    "description": "语音与弹幕去重窗口（秒）", "type": "float", "default": 5.0,
+    "hint": "范围 0–30；0 关闭。只合并不同来源、内容相同的近期消息。"
+  },
+  "ECHO_DECISION_ENABLED": {
+    "description": "智能附和判断", "type": "bool", "default": false,
+    "hint": "在低频附和选中后调用 AstrBot 判断模型；接口不可用或失败时沿用原附和逻辑。"
+  },
+  "ECHO_DECISION_PROVIDER_ID": {
+    "description": "附和判断模型 ID", "type": "string", "default": "",
+    "hint": "留空使用 AstrBot 默认判断提供商，不是聊天或视觉模型。"
+  },
+  "ECHO_DECISION_THRESHOLD": {
+    "description": "附和判断阈值", "type": "float", "default": 0.7,
+    "hint": "范围 0.5–1，越高越倾向保持安静。"
+  },
   "ROOM_PREVIEW": {
     "description": "各房间只预览模式",
     "type": "dict",

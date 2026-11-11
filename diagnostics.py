@@ -116,6 +116,8 @@ class EnvironmentCheck:
         if room and room not in self.plugin.rooms.configured():
             raise MediaError("找不到所选直播间，请刷新房间列表。")
         self.config = dict(self.plugin.config)
+        if room:
+            self.config.update(self.plugin.rooms.effective_config(room))
         settings = self.plugin.rooms.media_settings(room) if room else None
         self.providers = {}
         self.report = {

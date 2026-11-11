@@ -16,6 +16,7 @@ from astrbot.api.star import Context, Star, register
 from .bilibili import AuthExpired, BilibiliClient, BilibiliError, Credentials, uid_text
 from .conversation import Conversation, ConversationSettings, SendPacer, bounded_number
 from .dashboard import register_webui
+from .decision import EchoDecision
 from .diagnostics import EnvironmentCheck
 from .link import BiliBotLink
 from .media import MediaRuntime
@@ -23,7 +24,7 @@ from .rooms import RoomError, RoomManager, RoomUnavailable
 from .session import LiveSession
 
 PLUGIN_NAME = "astrbot_plugin_bilibili_live_chat"
-PLUGIN_VERSION = "0.5.0"
+PLUGIN_VERSION = "0.6.0"
 QR_TTL = 180
 VISUAL_QUESTION = re.compile(r"画面|屏幕|镜头|这个|这关|这里|这一幕|怎么过|看得见|看得到")
 
@@ -208,23 +209,26 @@ class LiveChatPlugin(Star):
             if source == "bilibot":
                 raise RoomUnavailable("waiting_login", "BiliBot 未启用或没有可用登录状态。")
             raise RoomUnavailable("waiting_login", "请先在控制台或私聊扫码登录。")
-        provider = str(self.config.get("MODEL_PROVIDER_ID") or "").strip()
+        overrides = self.rooms.dialogue_overrides(room)
+        effective = {**self.config, **self.rooms.effective_config(room)}
+        provider = str(effective.get("MODEL_PROVIDER_ID") or "").strip()
         if not provider or not self.context.get_provider_by_id(provider):
             raise RoomUnavailable("waiting_config", "请在 WebUI 选择可用的 AstrBot 聊天模型。")
-        settings = ConversationSettings.from_config(self.config)
+        settings = ConversationSettings.from_config(effective)
         media_settings = self.rooms.media_settings(room)
         preview = self.rooms.preview_enabled(room)
         settings = replace(
             settings,
+            echo_enabled=settings.echo_enabled and self.config.get('ECHO_ENABLED') is True,
             echo_interval=media_settings.echo_interval if media_settings.echo_interval is not None else settings.echo_interval,
             echo_probability=media_settings.echo_probability
             if media_settings.echo_probability is not None else settings.echo_probability,
         )
-        if settings.keyword_mode and not settings.keywords:
+        if settings.keyword_mode and not settings.keywords and not (media_settings.audio and settings.voice_aliases):
             raise RoomUnavailable("waiting_config", "关键词模式需要至少一个唤醒词。")
 
-        persona = str(self.config.get("PERSONA_PROMPT") or "").strip()[:4000]
-        persona_id = str(self.config.get("ASTRBOT_PERSONA_ID") or "").strip()
+        persona = str(effective.get("PERSONA_PROMPT") or "").strip()[:4000]
+        persona_id = str(effective.get("ASTRBOT_PERSONA_ID") or "").strip()
         if persona_id:
             try:
                 selected = await self.context.persona_manager.get_persona(persona_id)
@@ -232,8 +236,8 @@ class LiveChatPlugin(Star):
                 raise RoomUnavailable("waiting_config", "所选 AstrBot 人格已不存在，请重新选择。") from exc
             base_prompt = str(getattr(selected, "system_prompt", "") or "").strip()
             persona = "\n\n".join(filter_text for filter_text in (base_prompt, persona) if filter_text)
-        formal = str(self.config.get("REPLY_INSTRUCTION") or "").strip()[:2000]
-        echo = str(self.config.get("ECHO_INSTRUCTION") or "").strip()[:2000]
+        formal = str(effective.get("REPLY_INSTRUCTION") or "").strip()[:2000]
+        echo = str(effective.get("ECHO_INSTRUCTION") or "").strip()[:2000]
         ignored = self.config.get("IGNORE_UIDS", [])
         ignored_users = {uid_text(uid) for uid in ignored} if isinstance(ignored, list) else set()
         poll_seconds = bounded_number(self.config, "POLL_SECONDS", 5, 2, 30)
@@ -246,6 +250,7 @@ class LiveChatPlugin(Star):
                 and self._auth_source() == source
                 and self._credentials(source) == credentials
                 and self.rooms.preview_enabled(room) == preview
+                and self.rooms.dialogue_overrides(room) == overrides
             )
 
         client = BilibiliClient(credentials)
@@ -291,6 +296,7 @@ class LiveChatPlugin(Star):
                 client, canonical, credentials.uid, Conversation(settings, pacing=pacing), generate,
                 poll_seconds=poll_seconds, model_timeout=model_timeout, ignored_users=ignored_users,
                 valid=valid, observer=record, preview=preview,
+                echo_gate=EchoDecision(self.context, effective).check if effective.get('ECHO_DECISION_ENABLED') is True else None,
             )
             media = None
             if media_settings.audio or media_settings.video:

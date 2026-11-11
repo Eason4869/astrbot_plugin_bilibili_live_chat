@@ -13,12 +13,12 @@ const schema = JSON.parse(await readFile(path.join(root, "_conf_schema.json"), "
 const settings = Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, value.default]));
 settings.MODEL_PROVIDER_ID = "chat";
 settings.KEYWORDS = ["小猫"];
-const media = { audio: true, video: true, stt_provider: "", vision_provider: "", audio_segment: 6, frame_interval: 5, echo_interval: null, echo_probability: null };
+const media = { audio: true, video: true, stt_provider: "", vision_provider: "", audio_segment: 6, frame_interval: 5, echo_interval: null, echo_probability: null, scene_threshold: 24, scene_confirm_frames: 1, ignored_regions: [] };
 const fixture = {
   settings, account: { source: "local", local: { configured: true, uid: "42" }, bilibot: { configured: false }, memory_enabled: false, memory_available: false },
   environment: { ffmpeg: { available: true, path: "mock-ffmpeg" } },
   providers: [{ id: "chat", label: "Test chat" }], speech_providers: [], personas: [],
-  rooms: ["12", "13"].map(id => ({ id, canonical: id, enabled: true, running: true, phase: "listening", received: 3, replies: 1, previews: 0, remaining: 80, issues: [], preview: false, media: { settings: media, transcripts: 2, frames: 4, issues: [] } })),
+  rooms: ["12", "13"].map(id => ({ id, canonical: id, enabled: true, running: true, phase: "listening", received: 3, replies: 1, previews: 0, remaining: 80, issues: [], preview: false, dialogue: { overrides: {}, effective: settings }, media: { settings: media, transcripts: 2, frames: 4, issues: [] } })),
 };
 const injection = `<script>
 window.__calls=[];window.__debugDelay=0;window.__fixture=${JSON.stringify(fixture)};
@@ -38,6 +38,18 @@ window.AstrBotPluginView={
   if(endpoint==='rooms/preview'){
    window.__fixture.rooms.find(room=>room.id===payload.room).preview=payload.preview;
    if(window.__losePreviewResponse)throw new Error('mock response lost after commit');
+   return {status:'ok',data:window.__fixture};
+  }
+  if(endpoint==='rooms/dialogue'){
+   const room=window.__fixture.rooms.find(room=>room.id===payload.room);
+   room.dialogue.overrides=Object.fromEntries(Object.entries({...room.dialogue.overrides,...payload.settings}).filter(([key,value])=>value!==null));
+   room.dialogue.effective={...window.__fixture.settings,...room.dialogue.overrides};
+   return {status:'ok',data:window.__fixture};
+  }
+  if(endpoint==='rooms/copy'){
+   const source=window.__fixture.rooms.find(room=>room.id===payload.source);
+   const target=window.__fixture.rooms.find(room=>room.id===payload.destination);
+   target.dialogue=structuredClone(source.dialogue);target.media.settings=structuredClone(source.media.settings);
    return {status:'ok',data:window.__fixture};
   }
   return {status:'ok',data:window.__fixture};
@@ -129,6 +141,35 @@ try {
   await evaluate("window.__statusFails=false;window.__losePreviewResponse=false;document.getElementById('reload').click()");
   await until(() => evaluate("!document.querySelector('[data-room=\"12\"] [data-preview]').indeterminate"), "authoritative mode recovery");
   assert.equal(await evaluate("document.querySelector('[data-room=\"12\"] [data-preview]').checked"), false);
+  await evaluate(`{
+    const row=document.querySelector('[data-room="12"]');
+    row.querySelector('.dialogue-settings').open=true;
+    row.querySelector('[data-inherit="KEYWORDS"]').click();
+    row.querySelector('[name="KEYWORDS"]').value='房间专用词';
+    row.querySelector('[data-part="dialogue-form"]').requestSubmit();
+  }`);
+  await until(() => evaluate("window.__fixture.rooms[0].dialogue.overrides.KEYWORDS?.[0]==='房间专用词'"), "room override save");
+  assert.equal(await evaluate("window.__fixture.rooms[1].dialogue.overrides.KEYWORDS===undefined"), true);
+  await evaluate(`{
+    const row=document.querySelector('[data-room="13"]');
+    row.querySelector('[data-part="copy-source"]').value='12';
+    row.querySelector('[data-part="copy-settings"]').click();
+  }`);
+  await until(() => evaluate("window.__fixture.rooms[1].dialogue.overrides.KEYWORDS?.[0]==='房间专用词'"), "copy saved room settings");
+  await evaluate(`{
+    const row=document.querySelector('[data-room="12"]');
+    row.querySelector('[name="KEYWORDS"]').value='尚未保存';
+    document.getElementById('reload').click();
+  }`);
+  await pause(300);
+  assert.equal(await evaluate("document.querySelector('[data-room=\"12\"] [name=KEYWORDS]').value"), "尚未保存", "status refresh preserves room edits");
+  await evaluate(`{
+    const row=document.querySelector('[data-room="12"]');
+    row.querySelector('[data-part="dialogue-restore"]').click();
+    row.querySelector('[data-inherit="KEYWORDS"]').click();
+    row.querySelector('[data-part="dialogue-form"]').requestSubmit();
+  }`);
+  await until(() => evaluate("window.__fixture.rooms[0].dialogue.overrides.KEYWORDS===undefined"), "restore shared inheritance");
   await send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await pause(200);
   assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"), true, "mobile layout must not overflow");

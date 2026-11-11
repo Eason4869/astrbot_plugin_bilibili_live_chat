@@ -8,7 +8,7 @@ import time
 import wave
 from array import array
 from contextlib import asynccontextmanager, suppress
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -92,6 +92,9 @@ class MediaSettings:
     frame_interval: int = 5
     echo_interval: int | None = None
     echo_probability: float | None = None
+    scene_threshold: int = 24
+    scene_confirm_frames: int = 1
+    ignored_regions: list = field(default_factory=list)
 
     @classmethod
     def parse(cls, data, *, strict=False):
@@ -105,13 +108,18 @@ class MediaSettings:
         for key, value in data.items():
             if key in defaults:
                 if valid_setting(key, value):
-                    defaults[key] = value.strip() if isinstance(value, str) else value
+                    defaults[key] = value.strip() if isinstance(value, str) else [list(rect) for rect in value] if key == 'ignored_regions' else value
                 elif strict:
                     raise MediaError("音视频设置超出范围，请检查模型、片段长度或间隔。")
         return cls(**defaults)
 
 
 def valid_setting(key, value):
+    if key == 'ignored_regions':
+        return isinstance(value, list) and len(value) <= 8 and all(
+            isinstance(rect, (list, tuple)) and len(rect) == 4
+            and all(type(number) in (int, float) and 0 <= number <= 100 for number in rect)
+            and rect[0] < rect[2] and rect[1] < rect[3] for rect in value)
     if key in ("audio", "video"):
         return type(value) is bool
     if key in ("stt_provider", "vision_provider"):
@@ -120,7 +128,8 @@ def valid_setting(key, value):
         return value is None or (type(value) in (int, float) and 0 <= value <= 1)
     if key == "echo_interval" and value is None:
         return True
-    low, high = {"audio_segment": (3, 15), "frame_interval": (2, 60), "echo_interval": (10, 3600)}[key]
+    low, high = {"audio_segment": (3, 15), "frame_interval": (2, 60), "echo_interval": (10, 3600),
+                 'scene_threshold': (1, 100), 'scene_confirm_frames': (1, 5)}[key]
     return type(value) is int and low <= value <= high
 
 
@@ -190,17 +199,21 @@ async def jpeg_frames(reader):
             del buffer[:end + 2]
 
 
-def frame_signature(frame):
+def frame_signature(frame, ignored_regions=()):
     try:
         from PIL import Image
     except ImportError as exc:
         raise MediaError("缺少 Pillow，无法读取直播截图。") from exc
     with Image.open(BytesIO(frame)) as image:
-        return image.convert("L").resize((16, 16)).tobytes()
+        gray = image.convert('L')
+        for x1, y1, x2, y2 in ignored_regions:
+            gray.paste(0, (int(gray.width * x1 / 100), int(gray.height * y1 / 100),
+                           int(gray.width * x2 / 100), int(gray.height * y2 / 100)))
+        return gray.resize((16, 16)).tobytes()
 
 
-def scene_changed(before, after):
-    return before is not None and sum(abs(a - b) for a, b in zip(before, after)) >= len(after) * 24
+def scene_changed(before, after, threshold=24):
+    return before is not None and sum(abs(a - b) for a, b in zip(before, after)) >= len(after) * threshold
 
 
 async def select_stt_provider(context, provider_id=""):
@@ -378,18 +391,24 @@ class MediaRuntime:
 
     async def _video(self, reader):
         previous = None
+        confirmations = 0
         started = self.clock()
         async for frame in jpeg_frames(reader):
-            current = frame_signature(frame)
+            current = frame_signature(frame, self.settings.ignored_regions)
             self.frame, self.frame_at = frame, self.clock()
             self.frames += 1
             self.errors["video"] = ""
             event = RoomEvent(uuid4().hex, '', '直播画面', '画面出现明显变化', 'vision', frame,
                               captured_at=started, collection_ms=round(max(0, self.clock() - started) * 1000, 1))
-            if scene_changed(previous, current):
+            changed = scene_changed(previous, current, self.settings.scene_threshold)
+            confirmations = confirmations + 1 if changed else 0
+            if changed and confirmations >= self.settings.scene_confirm_frames:
                 self.emit(event)
+                previous, confirmations = current, 0
             else:
                 self.report(replace(event, text='已读取直播截图'),
-                            '首帧仅建立画面比较起点。' if previous is None else '画面没有明显变化。')
-            previous = current
+                            '首帧仅建立画面比较起点。' if previous is None else
+                            f'画面变化确认中（{confirmations}/{self.settings.scene_confirm_frames}）。' if changed else '画面没有明显变化。')
+            if previous is None:
+                previous = current
             started = self.clock()

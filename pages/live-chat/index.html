@@ -72,6 +72,16 @@
                 <p class="caption" data-part="debug-empty">开始监听后，在这里查看识别、唤醒和回复过程。</p>
                 <ol class="debug-events" data-part="debug-events" aria-label="最近处理记录"></ol>
               </details>
+              <details class="dialogue-settings">
+                <summary>本房间对话配置 <span class="caption" data-part="dialogue-summary">继承共享设置</span></summary>
+                <p class="caption">取消某项「继承共享」即可单独设置。保存只重启本房间。</p>
+                <form data-part="dialogue-form"><fieldset>
+                  <div class="fields" data-part="dialogue-fields"></div>
+                  <div class="form-foot"><button class="action" type="button" data-part="dialogue-restore">恢复已保存</button><button class="action primary" type="submit">保存本房间配置</button></div>
+                  <div class="room-copy"><label class="field"><span>从其他房间复制已保存的对话和音视频设置</span><select data-part="copy-source"></select></label><button class="action" type="button" data-part="copy-settings">复制到本房间</button></div>
+                  <p class="caption">复制会替换本房间的对话和音视频配置，保留登录、预览开关与监听启停状态。</p>
+                </fieldset></form>
+              </details>
               <details class="media-settings">
                 <summary>音视频识别 <span class="caption" data-part="media-summary">未启用</span></summary>
                 <form data-part="media-form">
@@ -83,6 +93,9 @@
                       <label class="field"><span>视觉模型</span><select name="vision_provider"></select></label>
                       <label class="field"><span>语音片段上限（秒）</span><input name="audio_segment" type="number" min="3" max="15" required></label>
                       <label class="field"><span>抽帧间隔（秒）</span><input name="frame_interval" type="number" min="2" max="60" required></label>
+                      <label class="field"><span>画面变化阈值（越低越敏感）</span><input name="scene_threshold" type="number" min="1" max="100" required></label>
+                      <label class="field"><span>连续确认帧数</span><input name="scene_confirm_frames" type="number" min="1" max="5" required></label>
+                      <label class="field field-wide"><span>画面忽略区域（每行 x1,y1,x2,y2，百分比）</span><textarea name="ignored_regions" rows="2" placeholder="例如忽略底部字幕：0,80,100,100"></textarea><small class="caption">仅影响变化检测，看图模型仍接收原始截图。</small></label>
                       <label class="field"><span>附和间隔（秒）</span><input name="echo_interval" type="number" min="10" max="3600" placeholder="继承共享设置"></label>
                       <label class="field"><span>附和概率</span><input name="echo_probability" type="number" min="0" max="1" step="any" placeholder="继承共享设置"></label>
                     </div>
@@ -110,6 +123,12 @@
                 <summary>高级设置</summary>
                 <div class="fields">
                   <label class="preference field-wide">关键词唤醒模式<input class="switch" data-field="KEYWORD_MODE" type="checkbox"></label>
+                  <label class="field field-wide"><span>语音唤醒别名（每行一个，仅用于语音）</span><textarea data-field="VOICE_KEYWORD_ALIASES" rows="2" placeholder="填入转写时常出现的同音词"></textarea></label>
+                  <label class="field"><span>语音与弹幕去重窗口（秒，0 关闭）</span><input data-field="CROSS_SOURCE_DEDUP_SECONDS" type="number" min="0" max="30" step="0.1" required></label>
+                  <label class="preference field-wide">智能附和判断<input class="switch" data-field="ECHO_DECISION_ENABLED" type="checkbox"></label>
+                  <label class="field"><span>AstrBot 判断模型 ID（留空默认）</span><input data-field="ECHO_DECISION_PROVIDER_ID" type="text" maxlength="256"></label>
+                  <label class="field"><span>附和判断阈值</span><input data-field="ECHO_DECISION_THRESHOLD" type="number" min="0.5" max="1" step="0.05" required></label>
+                  <p class="caption field-wide" id="decision-status">判断接口不可用时沿用原附和规则。</p>
                   <label class="field"><span>唤醒窗口（秒）</span><input data-field="WINDOW_SECONDS" type="number" min="0" max="3600" required></label>
                   <label class="field"><span>成功回复续时（秒）</span><input data-field="WINDOW_EXTEND_SECONDS" type="number" min="0" max="3600" required></label>
                   <label class="field"><span>单轮上限（秒）</span><input data-field="WINDOW_MAX_SECONDS" type="number" min="1" max="7200" required></label>
@@ -160,6 +179,7 @@
             <span><strong>联动 BiliBot 直播记忆</strong><small id="memory-caption">可与登录来源分别设置。</small></span>
             <input class="switch" id="memory" type="checkbox" disabled>
           </label>
+          <details class="link-inspection"><summary>BiliBot 联动兼容检查</summary><p class="caption" id="link-version"></p><p class="caption">只读检查接口与配置，不登录、不查询或写入测试记忆。远端服务可用性需在实际调用时确认。</p><ul id="link-status" class="compatibility-list"></ul></details>
         </section>
       </div>
     </div>

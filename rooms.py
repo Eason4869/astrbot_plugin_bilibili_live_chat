@@ -5,6 +5,13 @@ from dataclasses import asdict, dataclass
 
 from .bilibili import AuthExpired, BilibiliError, RateLimited, uid_text
 from .media import MediaError, MediaSettings
+from .room_settings import (
+    DIALOGUE_FIELDS,
+    SCHEMA,
+    RoomSettingsError,
+    saved_overrides,
+    validate_dialogue,
+)
 from .session import LiveSession
 
 MAX_ROOMS = 20
@@ -68,6 +75,46 @@ class RoomManager:
     def media_settings(self, room):
         return MediaSettings.parse(self._media_config().get(room))
 
+    def _dialogue_config(self):
+        value = self.config.get('ROOM_DIALOGUE')
+        return value if isinstance(value, dict) else {}
+
+    def dialogue_overrides(self, room):
+        return saved_overrides(self._dialogue_config().get(room))
+
+    def effective_config(self, room):
+        shared = {key: self.config.get(key, SCHEMA[key]['default']) for key in DIALOGUE_FIELDS}
+        effective = {**shared, **self.dialogue_overrides(room)}
+        effective['ECHO_ENABLED'] = self.config.get('ECHO_ENABLED') is True and effective['ECHO_ENABLED'] is True
+        return effective
+
+    async def set_dialogue(self, value, payload):
+        room = uid_text(value)
+        if room not in self.configured():
+            raise RoomError('找不到这个直播间。')
+        try:
+            changes = validate_dialogue(payload)
+        except RoomSettingsError as exc:
+            raise RoomError(str(exc)) from exc
+        current = self.dialogue_overrides(room)
+        updated = {key: value for key, value in {**current, **changes}.items() if value is not None}
+        if current != updated:
+            if not self.save({'ROOM_DIALOGUE': {**self._dialogue_config(), room: updated}}):
+                raise RoomError('保存房间对话设置失败，请重试。')
+            await self.reconcile(restart_room=room)
+
+    async def copy_settings(self, source, destination):
+        source, destination = uid_text(source), uid_text(destination)
+        if source not in self.configured() or destination not in self.configured() or source == destination:
+            raise RoomError('请选择两个不同的已添加直播间。')
+        updates = {
+            'ROOM_DIALOGUE': {**self._dialogue_config(), destination: self.dialogue_overrides(source)},
+            'ROOM_MEDIA': {**self._media_config(), destination: asdict(self.media_settings(source))},
+        }
+        if not self.save(updates):
+            raise RoomError('复制房间设置失败，请重试。')
+        await self.reconcile(restart_room=destination)
+
     def _preview_config(self):
         value = self.config.get('ROOM_PREVIEW')
         return value if isinstance(value, dict) else {}
@@ -107,6 +154,7 @@ class RoomManager:
                 "replies": live.replies if live else 0,
                 "preview": self.preview_enabled(room),
                 "previews": live.previews if live else 0,
+                'dialogue': {'overrides': self.dialogue_overrides(room), 'effective': self.effective_config(room)},
                 "remaining": max(0, int(live.conversation.window_until - live.clock())) if running else 0,
                 "issues": issues,
                 "media": {
@@ -148,6 +196,8 @@ class RoomManager:
                 updates["ROOM_MEDIA"] = {key: value for key, value in self._media_config().items() if key != room}
             if action == 'remove' and room in self._preview_config():
                 updates['ROOM_PREVIEW'] = {key: value for key, value in self._preview_config().items() if key != room}
+            if action == 'remove' and room in self._dialogue_config():
+                updates['ROOM_DIALOGUE'] = {key: value for key, value in self._dialogue_config().items() if key != room}
             if not self.save(updates):
                 raise RoomError("保存直播间设置失败，请重试。")
         await self.reconcile()

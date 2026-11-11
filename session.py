@@ -15,7 +15,7 @@ class LiveSession:
     def __init__(
         self, client, room, own_uid, conversation, generate, *,
         poll_seconds=5, model_timeout=20, ignored_users=(), clock=None,
-        valid=lambda: True, observer=None, preview=False,
+        valid=lambda: True, observer=None, preview=False, echo_gate=None,
     ):
         self.client = client
         self.room = room
@@ -28,6 +28,7 @@ class LiveSession:
         self.clock = clock or time.monotonic
         self.valid = valid
         self.observer = observer
+        self.echo_gate = echo_gate
         self.preview = preview
         if preview:
             self.conversation.pacing = SendPacer()
@@ -161,6 +162,22 @@ class LiveSession:
     async def _process(self, job):
         key = job.message.key
         self.debug.elapsed(key, 'queue', job.offered_at)
+        if job.mode == 'echo' and self.echo_gate:
+            self.debug.update(key, 'judging', '正在判断是否适合附和。')
+            started = self.clock()
+            try:
+                allowed, reason = await asyncio.wait_for(self.echo_gate(job), timeout=3)
+            except Exception:  # noqa: BLE001
+                allowed, reason = None, '判断超时或调用失败，沿用原规则。'
+            finally:
+                self.debug.elapsed(key, 'decision', started)
+            self.debug.update(key, decision=reason)
+            if allowed is False:
+                self.debug.update(key, 'skipped', reason)
+                return
+            if not await self._can_run() or not self.conversation.is_current(job, self.clock()):
+                self.debug.update(key, 'expired', '判断完成时消息已过期或房间已停止。')
+                return
         self.debug.update(key, 'generating', '正在调用模型生成回复。')
         started = self.clock()
         try:

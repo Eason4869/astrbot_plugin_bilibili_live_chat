@@ -1,12 +1,12 @@
 const statuses = {
-  queued: "排队中", generating: "生成中", waiting: "等待发送", sending: "发送中", sent: "已发送", preview: "预览完成",
+  queued: "排队中", judging: "附和判断中", generating: "生成中", waiting: "等待发送", sending: "发送中", sent: "已发送", preview: "预览完成",
   skipped: "已跳过", replaced: "被新消息替代", expired: "已过期", silent: "保持安静", invalid: "回复未通过校验",
   error: "处理失败", cancelled: "已取消",
 };
 const sources = { voice: "语音", vision: "画面", danmaku: "弹幕" };
 const stages = {
   collection: "语音采集 / 抽帧等待", transcription_queue: "转写前排队", transcription: "语音转写",
-  queue: "生成前排队（含冷却）", model: "回复生成（含看图）", rate_limit: "生成后限流等待",
+  queue: "生成前排队（含冷却）", decision: "附和判断", model: "回复生成（含看图）", rate_limit: "生成后限流等待",
   send: "发送接口", total: "本机总耗时",
 };
 const duration = value => Number.isFinite(value) ? (value < 1000 ? Math.round(value) + " ms" : (value / 1000).toFixed(2) + " 秒") : "—";
@@ -93,7 +93,7 @@ export function createRoomDebug({ call, mutate, showStatus, notice, busy }) {
       const time = new Date(event.at).toLocaleTimeString();
       item.querySelector("summary").textContent = time + " · " + (sources[event.source] || "输入") + " · " + (statuses[event.status] || event.status);
       item.querySelector(".debug-input").textContent = (event.name ? event.name + "：" : "") + (event.text || "（无识别文本）");
-      item.querySelector(".debug-reason").textContent = (event.keyword ? "命中「" + event.keyword + "」 · " : "") + event.reason;
+      item.querySelector(".debug-reason").textContent = (event.keyword ? "命中「" + event.keyword + "」 · " : "") + [event.decision, event.reason].filter(Boolean).join(" · ");
       const output = item.querySelector(".debug-output");
       output.hidden = !event.reply;
       output.textContent = (event.status === "sent" ? "已发送：" : "生成回复：") + event.reply;

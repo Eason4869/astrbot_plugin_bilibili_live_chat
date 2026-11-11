@@ -6,6 +6,7 @@ from pathlib import Path
 from secrets import token_urlsafe
 
 from .bilibili import AuthExpired, BilibiliError, uid_text
+from .decision import decision_status
 from .media import MediaError, resolve_ffmpeg
 from .rooms import RoomError
 
@@ -20,6 +21,7 @@ NUMBER_LIMITS = {
     "MAX_REPLY_CHARS": (2, 40),
     "POLL_SECONDS": (2, 30),
     "MODEL_TIMEOUT_SECONDS": (5, 40),
+    'CROSS_SOURCE_DEDUP_SECONDS': (0, 30), 'ECHO_DECISION_THRESHOLD': (0.5, 1),
 }
 TEXT_LIMITS = {
     "FFMPEG_PATH": 4096,
@@ -28,10 +30,12 @@ TEXT_LIMITS = {
     "PERSONA_PROMPT": 4000,
     "REPLY_INSTRUCTION": 2000,
     "ECHO_INSTRUCTION": 2000,
+    'ECHO_DECISION_PROVIDER_ID': 256,
 }
 PUBLIC_FIELDS = (
     "AUTH_SOURCE", "KEYWORDS", "IGNORE_UIDS", "KEYWORD_MODE",
     "ECHO_ENABLED", "BILIBOT_MEMORY_ENABLED", *TEXT_LIMITS, *NUMBER_LIMITS,
+    'VOICE_KEYWORD_ALIASES', 'ECHO_DECISION_ENABLED',
 )
 SCHEMA = json.loads(Path(__file__).with_name("_conf_schema.json").read_text(encoding="utf-8"))
 
@@ -95,7 +99,8 @@ class Dashboard:
         except MediaError as exc:
             ffmpeg = {"available": False, "path": "", "message": str(exc)}
         return {
-            "environment": {"ffmpeg": ffmpeg},
+            "environment": {"ffmpeg": ffmpeg, 'decision': decision_status(bot.context)},
+            'link': bot.link.status(),
             "settings": {key: bot.config.get(key, SCHEMA[key]["default"]) for key in PUBLIC_FIELDS},
             "account": {
                 "source": bot._auth_source(),
@@ -165,6 +170,24 @@ class Dashboard:
             self._check_open()
             try:
                 await self.plugin.rooms.set_preview(room, enabled)
+            except RoomError as exc:
+                raise DashboardError(str(exc)) from exc
+            return self.snapshot()
+
+    async def dialogue_settings(self, room, settings):
+        async with self.plugin.command_lock:
+            self._check_open()
+            try:
+                await self.plugin.rooms.set_dialogue(room, settings)
+            except RoomError as exc:
+                raise DashboardError(str(exc)) from exc
+            return self.snapshot()
+
+    async def copy_room_settings(self, source, destination):
+        async with self.plugin.command_lock:
+            self._check_open()
+            try:
+                await self.plugin.rooms.copy_settings(source, destination)
             except RoomError as exc:
                 raise DashboardError(str(exc)) from exc
             return self.snapshot()
@@ -346,6 +369,24 @@ def register_webui(plugin, name):
 
         return await run(change)
 
+    async def room_dialogue():
+        async def change():
+            data = await body()
+            if not isinstance(data, dict):
+                raise DashboardError('请选择直播间。')
+            return await dashboard.dialogue_settings(data.get('room'), data.get('settings'))
+
+        return await run(change)
+
+    async def room_copy():
+        async def change():
+            data = await body()
+            if not isinstance(data, dict):
+                raise DashboardError('请选择直播间。')
+            return await dashboard.copy_room_settings(data.get('source'), data.get('destination'))
+
+        return await run(change)
+
     async def debug_status():
         async def read():
             data = await body()
@@ -380,6 +421,7 @@ def register_webui(plugin, name):
         ("state", "GET", state), ("status", "GET", status), ("settings", "POST", settings),
         ("rooms", "POST", rooms), ("rooms/media", "POST", room_media), ("listen", "POST", listen),
         ('rooms/preview', 'POST', room_preview), ('debug', 'POST', debug_status),
+        ('rooms/dialogue', 'POST', room_dialogue), ('rooms/copy', 'POST', room_copy),
         ("login/generate", "POST", generate), ("login/poll", "POST", poll),
         ("selfcheck/start", "POST", selfcheck_start), ("selfcheck", "GET", selfcheck_status),
     ):

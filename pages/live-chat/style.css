@@ -140,6 +140,15 @@ button:disabled { cursor:default; opacity:.55; }
 .debug-output { color:var(--accent); }
 .debug-events li[data-status="error"] summary,.debug-events li[data-status="invalid"] summary { color:#943b56; }
 .debug-events li[data-status="sent"] summary { color:var(--green); }
+.dialogue-settings .caption { margin-top:8px; }
+.override-field { border-left:2px solid var(--line); padding-left:10px; min-width:0; }
+.inherit-option { display:flex; align-items:center; gap:5px; color:var(--muted); font-size:12px; margin-bottom:5px; }
+.inherit-option input { accent-color:var(--accent); }
+.override-field input:disabled,.override-field textarea:disabled,.override-field select:disabled { background:var(--bg); color:var(--muted); }
+.room-copy { display:flex; gap:10px; align-items:end; flex-wrap:wrap; margin:18px 0 8px; padding-top:14px; border-top:1px solid var(--line); }
+.room-copy .field { flex:1; min-width:180px; }
+.link-inspection { margin-top:14px; padding-top:12px; border-top:1px solid var(--line); }
+.compatibility-list { padding-left:18px; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
 @media(max-width:760px) {
   main { padding:19px 15px 32px; } .top { margin-bottom:14px; }
   .workbench { display:flex; flex-direction:column; } .stack { display:contents; }

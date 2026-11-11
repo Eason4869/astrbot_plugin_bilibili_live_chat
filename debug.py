@@ -4,8 +4,8 @@ import time
 from collections import OrderedDict
 from copy import deepcopy
 
-STAGES = ('collection', 'transcription_queue', 'transcription', 'queue', 'model', 'rate_limit', 'send', 'total')
-PENDING = frozenset(('queued', 'generating', 'waiting', 'sending'))
+STAGES = ('collection', 'transcription_queue', 'transcription', 'queue', 'decision', 'model', 'rate_limit', 'send', 'total')
+PENDING = frozenset(('queued', 'judging', 'generating', 'waiting', 'sending'))
 
 
 class RoomDebug:
@@ -24,7 +24,7 @@ class RoomDebug:
         self.entries[message.key] = {
             'id': self.sequence, 'at': int(time.time() * 1000), 'source': message.source,
             'name': message.name[:80], 'text': message.text[:240], 'keyword': '', 'mode': '',
-            'status': 'queued', 'reason': '', 'reply': '', 'preview': self.preview,
+            'status': 'queued', 'reason': '', 'reply': '', 'decision': '', 'preview': self.preview,
             'timings': timing, '_offered': now,
             '_captured': message.captured_at if message.captured_at is not None else now,
         }
@@ -43,7 +43,7 @@ class RoomDebug:
             entry['status'] = status
         if reason is not None:
             entry['reason'] = reason
-        for name in ('mode', 'keyword', 'reply'):
+        for name in ('mode', 'keyword', 'reply', 'decision'):
             if name in values:
                 entry[name] = values[name]
         if status is not None and status not in PENDING:

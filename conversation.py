@@ -38,6 +38,8 @@ class ConversationSettings:
     cooldown: int
     per_minute: int
     max_chars: int
+    voice_aliases: tuple[str, ...] = ()
+    dedup_seconds: float = 5.0
 
     @classmethod
     def from_config(cls, config):
@@ -57,6 +59,10 @@ class ConversationSettings:
             cooldown=bounded_number(config, "REPLY_COOLDOWN_SECONDS", 12, 2, 120),
             per_minute=bounded_number(config, "MAX_PER_MINUTE", 4, 1, 30),
             max_chars=bounded_number(config, "MAX_REPLY_CHARS", 20, 2, 40),
+            voice_aliases=tuple(normalized_keyword(word) for word in config.get('VOICE_KEYWORD_ALIASES', [])
+                                if isinstance(word, str) and normalized_keyword(word))
+            if isinstance(config.get('VOICE_KEYWORD_ALIASES', []), list) else (),
+            dedup_seconds=bounded_number(config, 'CROSS_SOURCE_DEDUP_SECONDS', 5.0, 0, 30),
         )
 
 
@@ -124,14 +130,30 @@ class Conversation:
         self.observe = lambda *args, **kwargs: None
         self.decision_reason = ""
         self.matched_keyword = ""
+        self.recent_inputs = deque(maxlen=50)
 
     def window_active(self, now):
         return now < self.window_until
 
+    def _keyword(self, message):
+        words = self.settings.keywords + (self.settings.voice_aliases if message.source == 'voice' else ())
+        text = normalized_keyword(message.text)
+        return next((word for word in words if word in text), '')
+
     def offer(self, message: RoomEvent, now: float):
         self.matched_keyword = ""
+        text_key = re.sub(r'[\W_]+', '', normalized_keyword(message.text))
+        priority = 3 if self.settings.keyword_mode and self._keyword(message) else (
+            2 if self.window_active(now) or (not self.settings.keyword_mode and message.source == 'danmaku') else 1)
+        if (message.source in ('voice', 'danmaku') and len(text_key) >= 2 and self.settings.dedup_seconds
+            and any(key == text_key and source != message.source and 0 <= now - at < self.settings.dedup_seconds
+                    and previous_priority >= priority for key, source, at, previous_priority in self.recent_inputs)):
+            self.observe(message.key, 'skipped', '近期语音和弹幕内容相同，合并处理。')
+            return
         mode = self._classify(message, now)
         if mode:
+            if message.source in ('voice', 'danmaku') and len(text_key) >= 2:
+                self.recent_inputs.append((text_key, message.source, now, {'wake': 3, 'conversation': 2, 'echo': 1}[mode]))
             previous = self.pending.get(mode)
             if previous:
                 self.observe(previous.message.key, 'replaced', '已有更新的同类消息，跳过旧消息。')
@@ -150,11 +172,11 @@ class Conversation:
         if not settings.keyword_mode:
             self.decision_reason = '关键词模式已关闭，进入对话。'
             return "conversation" if message.source == "danmaku" else self._echo(text, now)
-        if not settings.keywords:
+        keywords = settings.keywords + (settings.voice_aliases if message.source == 'voice' else ())
+        if not keywords:
             self.decision_reason = '尚未配置唤醒词。'
             return None
-        normalized = normalized_keyword(text)
-        self.matched_keyword = next((word for word in settings.keywords if word in normalized), '')
+        self.matched_keyword = self._keyword(message)
         if self.matched_keyword:
             if not self.window_active(now):
                 self.window += 1
