@@ -38,6 +38,7 @@ class FfmpegDiscoveryTests(unittest.TestCase):
             binary = Path(folder) / "Microsoft/WinGet/Packages/Gyan.FFmpeg_test/ffmpeg-9/bin/ffmpeg.exe"
             binary.parent.mkdir(parents=True)
             binary.touch()
+            binary.chmod(0o755)
             with patch.object(media.sys, "platform", "win32"), \
                  patch.dict(os.environ, {"LOCALAPPDATA": folder}), \
                  patch.object(media.shutil, "which", return_value=None):
