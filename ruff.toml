@@ -1,2 +1,5 @@
 # Keep checks aligned with the plugin's Python 3.10-compatible syntax and APIs.
 target-version = "py310"
+
+[lint.isort]
+known-first-party = ["astrbot_plugin_bilibili_live_chat"]
