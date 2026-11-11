@@ -1,3 +1,5 @@
+import { createRoomDebug } from "./debug.js";
+
 const $ = id => document.getElementById(id);
 const bridge = window.AstrBotPluginView ?? window.AstrBotPluginPage;
 const formFields = [...document.querySelectorAll("[data-field]")];
@@ -14,6 +16,7 @@ const state = {
   statusTimer: 0, toastTimer: 0, disposed: false,
   check: null, checkBusy: false, checkTimer: 0, checkEpoch: 0,
 };
+const roomDebug = createRoomDebug({ call, mutate, showStatus, notice, busy: () => state.busy });
 
 async function call(endpoint, payload) {
   if (!bridge) throw new Error("请从 AstrBot 管理面板的插件视图打开此页面。");
@@ -55,6 +58,7 @@ function controls() {
   $("add-room-button").disabled = locked;
   for (const button of $("rooms").querySelectorAll("[data-room-action]")) button.disabled = locked;
   for (const fieldset of $("rooms").querySelectorAll("fieldset")) fieldset.disabled = locked;
+  for (const input of $("rooms").querySelectorAll("[data-preview]")) input.disabled = locked || input.dataset.uncertain === "true";
   $("new-qr").disabled = locked;
   $("use-local").disabled = locked;
   $("use-bili").disabled = locked || !snapshot?.account.bilibot.configured;
@@ -107,6 +111,7 @@ function showRooms(rooms) {
   $("rooms-empty").hidden = rooms.length > 0;
   for (const [id, row] of state.roomRows) {
     if (!ids.has(id)) {
+      roomDebug.remove(id);
       row.remove();
       state.roomRows.delete(id);
     }
@@ -118,6 +123,7 @@ function showRooms(rooms) {
       row.dataset.room = room.id;
       state.roomRows.set(room.id, row);
       setMediaForm(row, room.media.settings);
+      roomDebug.attach(row, room.id);
     }
     if (list.children[index] !== row) list.insertBefore(row, list.children[index] ?? null);
     const part = name => row.querySelector('[data-part="' + name + '"]');
@@ -145,6 +151,7 @@ function showRooms(rooms) {
     }));
     issues.hidden = !room.issues.length;
     showMedia(row, room);
+    roomDebug.update(row, room);
   });
 }
 
@@ -625,6 +632,7 @@ $("start-selfcheck").addEventListener("click", async () => {
   }
 });
 window.addEventListener("pagehide", () => {
+  roomDebug.suspend();
   state.disposed = true;
   state.revision++;
   state.qrRevision++;
@@ -635,6 +643,7 @@ window.addEventListener("pagehide", () => {
 });
 window.addEventListener("pageshow", event => {
   if (event.persisted) {
+    roomDebug.resume();
     state.disposed = false;
     if (state.qrToken) nextQr(state.qrRevision);
     nextStatus();
@@ -644,4 +653,5 @@ window.addEventListener("pageshow", event => {
 });
 
 void load();
+document.addEventListener("visibilitychange", () => roomDebug.visibility());
 nextStatus();

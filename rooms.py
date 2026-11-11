@@ -68,6 +68,23 @@ class RoomManager:
     def media_settings(self, room):
         return MediaSettings.parse(self._media_config().get(room))
 
+    def _preview_config(self):
+        value = self.config.get('ROOM_PREVIEW')
+        return value if isinstance(value, dict) else {}
+
+    def preview_enabled(self, room):
+        return self._preview_config().get(room) is True
+
+    async def set_preview(self, value, enabled):
+        room = uid_text(value)
+        if room not in self.configured() or type(enabled) is not bool:
+            raise RoomError('请选择有效的直播间和预览模式。')
+        if enabled != self.preview_enabled(room):
+            values = {**self._preview_config(), room: enabled}
+            if not self.save({'ROOM_PREVIEW': values}):
+                raise RoomError('保存预览模式失败，请重试。')
+            await self.reconcile(restart_room=room)
+
     def snapshot(self):
         enabled = self.enabled()
         result = []
@@ -88,6 +105,8 @@ class RoomManager:
                 "phase": phase,
                 "received": live.received if live else 0,
                 "replies": live.replies if live else 0,
+                "preview": self.preview_enabled(room),
+                "previews": live.previews if live else 0,
                 "remaining": max(0, int(live.conversation.window_until - live.clock())) if running else 0,
                 "issues": issues,
                 "media": {
@@ -127,6 +146,8 @@ class RoomManager:
             updates = {"ROOM_IDS": rooms, "ENABLED_ROOMS": ordered_enabled, "ROOM_ID": ""}
             if action == "remove" and room in self._media_config():
                 updates["ROOM_MEDIA"] = {key: value for key, value in self._media_config().items() if key != room}
+            if action == 'remove' and room in self._preview_config():
+                updates['ROOM_PREVIEW'] = {key: value for key, value in self._preview_config().items() if key != room}
             if not self.save(updates):
                 raise RoomError("保存直播间设置失败，请重试。")
         await self.reconcile()

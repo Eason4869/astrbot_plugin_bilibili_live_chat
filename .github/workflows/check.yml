@@ -26,3 +26,5 @@ jobs:
       - run: python -B -m unittest discover -s astrbot_plugin_bilibili_live_chat/tests
       - run: ruff check --no-cache astrbot_plugin_bilibili_live_chat
       - run: node --check astrbot_plugin_bilibili_live_chat/pages/live-chat/app.js
+      - run: node --check astrbot_plugin_bilibili_live_chat/pages/live-chat/debug.js
+      - run: node --check astrbot_plugin_bilibili_live_chat/tests/webui_smoke.mjs

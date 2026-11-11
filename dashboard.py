@@ -160,6 +160,37 @@ class Dashboard:
                 raise DashboardError(str(exc)) from exc
             return self.snapshot()
 
+    async def preview_settings(self, room, enabled):
+        async with self.plugin.command_lock:
+            self._check_open()
+            try:
+                await self.plugin.rooms.set_preview(room, enabled)
+            except RoomError as exc:
+                raise DashboardError(str(exc)) from exc
+            return self.snapshot()
+
+    async def debug_status(self, room, frame_revision=''):
+        self._check_open()
+        room = uid_text(room)
+        if room not in self.plugin.rooms.configured() or not isinstance(frame_revision, str) or len(frame_revision) > 200:
+            raise DashboardError('请选择有效的直播间。')
+        live = self.plugin.rooms.live(room)
+        result = {
+            'room': room, 'session': live.id if live else '', 'running': bool(live and live.running),
+            'preview': self.plugin.rooms.preview_enabled(room), 'frame': None,
+            **(live.debug.snapshot() if live else {'events': [], 'limit': 50}),
+        }
+        if live and live.running and live.media:
+            frame = live.media.latest_frame()
+            if frame:
+                revision = f'{live.id}:{live.media.frames}'
+                result['frame'] = {
+                    'revision': revision,
+                    'age_ms': round(max(0, live.media.clock() - live.media.frame_at) * 1000),
+                    'image': None if revision == frame_revision else 'data:image/jpeg;base64,' + base64.b64encode(frame).decode('ascii'),
+                }
+        return result
+
     async def start_selfcheck(self, room):
         async with self.plugin.command_lock:
             self._check_open()
@@ -306,6 +337,24 @@ def register_webui(plugin, name):
 
         return await run(change)
 
+    async def room_preview():
+        async def change():
+            data = await body()
+            if not isinstance(data, dict):
+                raise DashboardError('请选择直播间。')
+            return await dashboard.preview_settings(data.get('room'), data.get('preview'))
+
+        return await run(change)
+
+    async def debug_status():
+        async def read():
+            data = await body()
+            if not isinstance(data, dict):
+                raise DashboardError('请选择直播间。')
+            return await dashboard.debug_status(data.get('room'), data.get('frame_revision', ''))
+
+        return await run(read)
+
     async def generate():
         return await run(dashboard.generate_qr)
 
@@ -330,6 +379,7 @@ def register_webui(plugin, name):
     for endpoint, method, handler in (
         ("state", "GET", state), ("status", "GET", status), ("settings", "POST", settings),
         ("rooms", "POST", rooms), ("rooms/media", "POST", room_media), ("listen", "POST", listen),
+        ('rooms/preview', 'POST', room_preview), ('debug', 'POST', debug_status),
         ("login/generate", "POST", generate), ("login/poll", "POST", poll),
         ("selfcheck/start", "POST", selfcheck_start), ("selfcheck", "GET", selfcheck_status),
     ):

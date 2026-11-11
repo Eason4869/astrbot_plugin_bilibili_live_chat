@@ -8,7 +8,7 @@ import time
 import wave
 from array import array
 from contextlib import asynccontextmanager, suppress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -218,12 +218,13 @@ async def select_stt_provider(context, provider_id=""):
 
 
 class MediaRuntime:
-    def __init__(self, settings, client, room, context, emit, clock=None, *, ffmpeg_path=""):
+    def __init__(self, settings, client, room, context, emit, clock=None, *, ffmpeg_path="", report=None):
         self.settings = settings
         self.client = client
         self.room = room
         self.context = context
         self.emit = emit
+        self.report = report or (lambda event, reason: None)
         self.clock = clock or time.monotonic
         self.ffmpeg_path = ffmpeg_path
         self.tasks = []
@@ -305,6 +306,7 @@ class MediaRuntime:
         queue = asyncio.Queue(maxsize=1)
         worker = asyncio.create_task(self._transcribe(queue, provider))
         buffer = bytearray()
+        collected_at = None
         silence = 0
         cap = SAMPLE_RATE * 2 * self.settings.audio_segment
         try:
@@ -318,13 +320,18 @@ class MediaRuntime:
                 voiced = speech_present(block)
                 if not buffer and not voiced:
                     continue
+                if collected_at is None:
+                    collected_at = self.clock()
                 buffer.extend(block)
                 silence = 0 if voiced else silence + 1
                 if len(buffer) >= cap or silence >= 2:
                     if queue.full():
                         queue.get_nowait()
-                    queue.put_nowait((self.clock(), bytes(buffer)))
+                        self.report(RoomEvent(uuid4().hex, '', '直播语音', '待转写语音片段', 'voice'),
+                                    '转写排队中已有更新的语音，跳过旧片段。')
+                    queue.put_nowait((self.clock(), bytes(buffer), collected_at))
                     buffer = bytearray(buffer[-2 * AUDIO_BLOCK_BYTES:] if len(buffer) >= cap and not silence else b"")
+                    collected_at = self.clock() - len(buffer) / (SAMPLE_RATE * 2) if buffer else None
         finally:
             worker.cancel()
             await asyncio.gather(worker, return_exceptions=True)
@@ -334,12 +341,20 @@ class MediaRuntime:
         with TemporaryDirectory(prefix="bili-live-stt-", ignore_cleanup_errors=True) as folder:
             path = Path(folder) / "speech.wav"
             while True:
-                captured, pcm = await queue.get()
+                segment = await queue.get()
+                captured, pcm = segment[:2]
+                collected_at = segment[2] if len(segment) > 2 else captured - len(pcm) / (SAMPLE_RATE * 2)
+                started = self.clock()
+                event = RoomEvent(uuid4().hex, '', '直播语音（转写）', '', 'voice', captured_at=collected_at,
+                                  collection_ms=round(max(0, captured - collected_at) * 1000, 1),
+                                  transcription_queue_ms=round(max(0, started - captured) * 1000, 1))
                 try:
                     write_wav(path, pcm)
                     value = await asyncio.wait_for(provider.get_text(str(path)), timeout=15)
                 except Exception:  # noqa: BLE001
                     self.errors["audio"] = "AstrBot 语音转写失败，请检查语音识别模型。"
+                    self.report(replace(event, transcription_ms=round(max(0, self.clock() - started) * 1000, 1)),
+                                self.errors['audio'])
                     continue
                 finally:
                     with suppress(OSError):
@@ -347,19 +362,34 @@ class MediaRuntime:
                 self.errors["audio"] = ""
                 text = " ".join(value.split())[:240] if isinstance(value, str) else ""
                 now = self.clock()
-                if not text or now - captured > MAX_AUDIO_AGE or (text == previous[0] and now - previous[1] < 5):
+                event = replace(event, text=text, transcription_ms=round(max(0, now - started) * 1000, 1))
+                if not text:
+                    self.report(event, '语音转写结果为空。')
+                    continue
+                if now - captured > MAX_AUDIO_AGE:
+                    self.report(event, '转写完成时语音已过期。')
+                    continue
+                if text == previous[0] and now - previous[1] < 5:
+                    self.report(event, '短时间内重复的语音转写，已跳过。')
                     continue
                 previous = (text, now)
                 self.transcripts += 1
-                self.emit(RoomEvent(uuid4().hex, "", "直播语音（转写）", text, "voice"))
+                self.emit(event)
 
     async def _video(self, reader):
         previous = None
+        started = self.clock()
         async for frame in jpeg_frames(reader):
             current = frame_signature(frame)
             self.frame, self.frame_at = frame, self.clock()
             self.frames += 1
             self.errors["video"] = ""
+            event = RoomEvent(uuid4().hex, '', '直播画面', '画面出现明显变化', 'vision', frame,
+                              captured_at=started, collection_ms=round(max(0, self.clock() - started) * 1000, 1))
             if scene_changed(previous, current):
-                self.emit(RoomEvent(uuid4().hex, "", "直播画面", "画面出现明显变化", "vision", frame))
+                self.emit(event)
+            else:
+                self.report(replace(event, text='已读取直播截图'),
+                            '首帧仅建立画面比较起点。' if previous is None else '画面没有明显变化。')
             previous = current
+            started = self.clock()

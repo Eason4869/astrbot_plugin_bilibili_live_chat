@@ -114,6 +114,32 @@ button:disabled { cursor:default; opacity:.55; }
 .selfcheck-result p { margin:5px 0 0; white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; color:var(--muted); }
 .selfcheck-result[data-status="error"] p { color:#943b56; }
 .selfcheck-result[data-status="ok"] .check-state { color:var(--green); }
+.preview-control { margin-top:16px; padding:12px 0; border-top:1px solid var(--line); }
+.preview-control .caption { margin-top:6px; font-size:12px; }
+.preview-control small { color:var(--muted); font-size:12px; margin-left:6px; }
+.preview-control small.is-preview { color:var(--accent); font-weight:600; }
+.room-debug { border-top:1px solid var(--line); margin-top:0; padding-top:12px; }
+.debug-toolbar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:12px 0; }
+.debug-scope { font-size:12px; margin-bottom:12px; }
+.debug-capture { display:grid; gap:12px; }
+.debug-capture figure { margin:0; }
+.debug-capture img { display:block; max-height:220px; width:100%; object-fit:contain; background:#f3eff1; border-radius:6px; }
+.debug-capture figcaption { margin-top:4px; font-size:12px; }
+.debug-label { font-size:13px; font-weight:600; }
+.debug-transcript { margin-top:5px; white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; }
+.debug-metrics { margin:14px 0; }
+.latency-grid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:4px 12px; margin:8px 0 0; font-size:12px; }
+.latency-grid dt { color:var(--muted); }
+.latency-grid dd { margin:0; font-variant-numeric:tabular-nums; }
+.debug-events { padding:0; margin:12px 0 0; list-style:none; max-height:430px; overflow:auto; overscroll-behavior:contain; }
+.debug-events li { border-top:1px solid var(--line); padding:10px 0; }
+.debug-events details { margin:0; }
+.debug-events summary { font-size:12px; font-weight:600; }
+.debug-events p { margin:7px 0; font-size:13px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.debug-reason { color:var(--muted); }
+.debug-output { color:var(--accent); }
+.debug-events li[data-status="error"] summary,.debug-events li[data-status="invalid"] summary { color:#943b56; }
+.debug-events li[data-status="sent"] summary { color:var(--green); }
 @media(max-width:760px) {
   main { padding:19px 15px 32px; } .top { margin-bottom:14px; }
   .workbench { display:flex; flex-direction:column; } .stack { display:contents; }

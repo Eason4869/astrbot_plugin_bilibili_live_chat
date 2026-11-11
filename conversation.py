@@ -68,6 +68,10 @@ class RoomEvent:
     text: str
     source: str = "danmaku"
     frame: bytes | None = field(default=None, repr=False)
+    captured_at: float | None = None
+    collection_ms: float | None = None
+    transcription_ms: float | None = None
+    transcription_queue_ms: float | None = None
 
 
 Danmaku = RoomEvent
@@ -117,14 +121,23 @@ class Conversation:
         self.history: deque[tuple[str, str]] = deque(maxlen=10)
         self.pacing = pacing if pacing is not None else SendPacer()
         self.last_echo = float("-inf")
+        self.observe = lambda *args, **kwargs: None
+        self.decision_reason = ""
+        self.matched_keyword = ""
 
     def window_active(self, now):
         return now < self.window_until
 
     def offer(self, message: RoomEvent, now: float):
+        self.matched_keyword = ""
         mode = self._classify(message, now)
         if mode:
+            previous = self.pending.get(mode)
+            if previous:
+                self.observe(previous.message.key, 'replaced', '已有更新的同类消息，跳过旧消息。')
             self.pending[mode] = Job(message, mode, now, self.window, tuple(self.history))
+        self.observe(message.key, 'queued' if mode else 'skipped', self.decision_reason,
+                     mode=mode or '', keyword=self.matched_keyword)
         if message.source != "vision":
             self.history.append((message.name, message.text))
 
@@ -132,32 +145,44 @@ class Conversation:
         settings = self.settings
         text = message.text
         if message.source == "vision":
+            self.decision_reason = '接话窗口内的画面仅作为回复参考。'
             return None if self.window_active(now) else self._echo(text, now)
         if not settings.keyword_mode:
+            self.decision_reason = '关键词模式已关闭，进入对话。'
             return "conversation" if message.source == "danmaku" else self._echo(text, now)
         if not settings.keywords:
+            self.decision_reason = '尚未配置唤醒词。'
             return None
         normalized = normalized_keyword(text)
-        if any(word in normalized for word in settings.keywords):
+        self.matched_keyword = next((word for word in settings.keywords if word in normalized), '')
+        if self.matched_keyword:
             if not self.window_active(now):
                 self.window += 1
                 self.window_started = now
                 self.window_until = now + min(settings.window_seconds, settings.window_limit)
-            self.pending.pop("echo", None)
+            previous = self.pending.pop("echo", None)
+            if previous:
+                self.observe(previous.message.key, 'replaced', '优先处理唤醒消息，取消待处理附和。')
+            self.decision_reason = '命中唤醒词，等待回复。'
             return "wake"
         if self.window_active(now):
+            self.decision_reason = '在接话窗口内，等待回复。'
             return "conversation"
         return self._echo(text, now)
 
     def _echo(self, text, now):
         settings = self.settings
-        if (
-            settings.echo_enabled
-            and now - self.last_echo >= settings.echo_interval
-            and not QUESTION.search(text)
-            and self.roll() < settings.echo_probability
-        ):
-            return "echo"
+        if not settings.echo_enabled:
+            self.decision_reason = '窗口外低频附和未开启。'
+        elif now - self.last_echo < settings.echo_interval:
+            self.decision_reason = '低频附和仍在间隔内。'
+        elif QUESTION.search(text):
+            self.decision_reason = '窗口外的明显提问不参与低频附和。'
+        elif self.roll() >= settings.echo_probability:
+            self.decision_reason = '本次未被低频附和采样选中。'
+        else:
+            self.decision_reason = '已选中低频附和，等待生成。'
+            return 'echo'
         return None
 
     def is_current(self, job: Job, now: float):
@@ -179,10 +204,14 @@ class Conversation:
             return None
         for mode in ("wake", "conversation", "echo"):
             job = self.pending.pop(mode, None)
-            if job is None or not self.is_current(job, now):
+            if job is None:
+                continue
+            if not self.is_current(job, now):
+                self.observe(job.message.key, 'expired', '消息已过期或接话窗口已结束。')
                 continue
             if mode == "echo":
                 if now - self.last_echo < self.settings.echo_interval:
+                    self.observe(job.message.key, 'skipped', '低频附和仍在间隔内。')
                     continue
                 self.last_echo = now
             return job

@@ -23,6 +23,12 @@
     "default": {},
     "hint": "建议在直播间对话控制台的房间卡片中修改。"
   },
+  "ROOM_PREVIEW": {
+    "description": "各房间只预览模式",
+    "type": "dict",
+    "default": {},
+    "hint": "在直播间控制台切换。开启后识别和生成照常运行，但不发送弹幕、不写入 BiliBot 长期记忆。"
+  },
   "FFMPEG_PATH": {
     "description": "FFmpeg 程序路径",
     "type": "string",

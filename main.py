@@ -23,7 +23,7 @@ from .rooms import RoomError, RoomManager, RoomUnavailable
 from .session import LiveSession
 
 PLUGIN_NAME = "astrbot_plugin_bilibili_live_chat"
-PLUGIN_VERSION = "0.4.2"
+PLUGIN_VERSION = "0.5.0"
 QR_TTL = 180
 VISUAL_QUESTION = re.compile(r"画面|屏幕|镜头|这个|这关|这里|这一幕|怎么过|看得见|看得到")
 
@@ -213,6 +213,7 @@ class LiveChatPlugin(Star):
             raise RoomUnavailable("waiting_config", "请在 WebUI 选择可用的 AstrBot 聊天模型。")
         settings = ConversationSettings.from_config(self.config)
         media_settings = self.rooms.media_settings(room)
+        preview = self.rooms.preview_enabled(room)
         settings = replace(
             settings,
             echo_interval=media_settings.echo_interval if media_settings.echo_interval is not None else settings.echo_interval,
@@ -244,6 +245,7 @@ class LiveChatPlugin(Star):
                 and room in self.rooms.enabled()
                 and self._auth_source() == source
                 and self._credentials(source) == credentials
+                and self.rooms.preview_enabled(room) == preview
             )
 
         client = BilibiliClient(credentials)
@@ -282,19 +284,20 @@ class LiveChatPlugin(Star):
                 if self.memory_enabled():
                     await self.link.record(canonical, live.id, job, text)
 
-            pacing = self.pacers.get(credentials.uid)
+            pacing = SendPacer() if preview else self.pacers.get(credentials.uid)
             if pacing is None:
                 pacing = self.pacers[credentials.uid] = SendPacer()
             live = LiveSession(
                 client, canonical, credentials.uid, Conversation(settings, pacing=pacing), generate,
                 poll_seconds=poll_seconds, model_timeout=model_timeout, ignored_users=ignored_users,
-                valid=valid, observer=record,
+                valid=valid, observer=record, preview=preview,
             )
             media = None
             if media_settings.audio or media_settings.video:
                 media = MediaRuntime(
                     media_settings, client, canonical, self.context, live.offer_media,
                     ffmpeg_path=self.config.get("FFMPEG_PATH", ""),
+                    report=live.skip_media,
                 )
                 live.media = media
             prepared = True
@@ -370,5 +373,7 @@ class LiveChatPlugin(Star):
             if room["enabled"] and not room["running"]:
                 state = f"已开启 · {state}"
             lines.append(f"房间 {room['id']} · {state} · 新弹幕 {room['received']} 条 · 已回复 {room['replies']} 条")
+            if room['preview']:
+                lines.append(f"只预览，不发弹幕 · 已生成预览 {room['previews']} 条")
             lines.extend(room["issues"])
         return "\n".join(lines)

@@ -54,6 +54,24 @@
                 <div class="stat"><strong data-part="window">未唤醒</strong><span>接话窗口</span></div>
               </div>
               <ul class="issues" data-part="issues" hidden></ul>
+              <div class="preview-control">
+                <label class="preference"><span>只预览，不发弹幕 <small data-part="preview-state">关闭</small></span><input class="switch" data-preview type="checkbox" aria-label="只预览，不发弹幕"></label>
+                <p class="caption">开启后照常识别和生成回复，会产生模型用量；不发送弹幕、不写入长期记忆。切换时重启本房间。</p>
+                <p class="alert" data-part="preview-error" role="status" hidden></p>
+              </div>
+              <details class="room-debug" data-part="debug">
+                <summary>实时调试 <span class="caption" data-part="debug-summary">输入、回复与分阶段耗时</span></summary>
+                <div class="debug-toolbar"><span class="caption" data-part="debug-state" role="status">展开后读取最近记录。</span><button class="action" type="button" data-part="debug-pause">暂停刷新</button></div>
+                <p class="alert" data-part="debug-error" role="status" hidden></p>
+                <p class="caption debug-scope">仅保留本次连接最近 50 条，重连或重启后清空。耗时从插件本机收到输入起算，不包含直播平台的传输延迟。</p>
+                <div class="debug-capture">
+                  <figure data-part="debug-frame" hidden><img data-part="debug-image" alt="当前直播间最近抽取的画面" loading="lazy"><figcaption class="caption" data-part="debug-frame-age"></figcaption></figure>
+                  <div><strong class="debug-label">最近语音转写</strong><p class="debug-transcript" data-part="debug-transcript">尚未收到语音转写。</p></div>
+                </div>
+                <div class="debug-metrics"><strong class="debug-label" data-part="debug-stats-title">最近完成的回复平均耗时</strong><dl class="latency-grid" data-part="debug-averages"></dl></div>
+                <p class="caption" data-part="debug-empty">开始监听后，在这里查看识别、唤醒和回复过程。</p>
+                <ol class="debug-events" data-part="debug-events" aria-label="最近处理记录"></ol>
+              </details>
               <details class="media-settings">
                 <summary>音视频识别 <span class="caption" data-part="media-summary">未启用</span></summary>
                 <form data-part="media-form">
