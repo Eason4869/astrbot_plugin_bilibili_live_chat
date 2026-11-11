@@ -142,7 +142,8 @@ class RoomManager:
             phase = worker.phase if worker else ("starting" if room in enabled else "disabled")
             issues = [worker.issue] if worker and worker.issue else []
             if running:
-                phase = "retrying" if live.poll_error else ("listening" if live.last_snapshot is not None else "starting")
+                connected = live.last_snapshot is not None or live.receiver.source == 'websocket'
+                phase = "retrying" if live.poll_error else ("listening" if connected else "starting")
                 issues = [issue for issue in (live.poll_error, live.model_error, live.send_error) if issue]
             result.append({
                 "id": room,
@@ -155,6 +156,10 @@ class RoomManager:
                 "preview": self.preview_enabled(room),
                 "previews": live.previews if live else 0,
                 'dialogue': {'overrides': self.dialogue_overrides(room), 'effective': self.effective_config(room)},
+                'listener': live.receiver.snapshot() if running else {
+                    'configured': self.effective_config(room)['LISTEN_MODE'], 'source': '', 'phase': 'disabled',
+                    'reason': '', 'retry_in': 0, 'heartbeat_age_ms': None, 'attempts': 0, 'fallbacks': 0, 'duplicates': 0,
+                },
                 "remaining": max(0, int(live.conversation.window_until - live.clock())) if running else 0,
                 "issues": issues,
                 "media": {

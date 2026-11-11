@@ -23,6 +23,7 @@ class RoomDebug:
                       transcription_queue=message.transcription_queue_ms)
         self.entries[message.key] = {
             'id': self.sequence, 'at': int(time.time() * 1000), 'source': message.source,
+            'channel': message.channel,
             'name': message.name[:80], 'text': message.text[:240], 'keyword': '', 'mode': '',
             'status': 'queued', 'reason': '', 'reply': '', 'decision': '', 'preview': self.preview,
             'timings': timing, '_offered': now,

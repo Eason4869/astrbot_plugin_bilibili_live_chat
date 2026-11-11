@@ -169,6 +169,18 @@ class RoomUpdateTests(unittest.IsolatedAsyncioTestCase):
                 self.bot.rooms.live("12").conversation.settings.echo_enabled
             )
 
+    async def test_listener_choice_is_room_local_validated_and_visible(self):
+        with self.assertRaises(DashboardError):
+            await self.ui.dialogue_settings('12', {'LISTEN_MODE': 'invalid'})
+        await self.ui.dialogue_settings('12', {'LISTEN_MODE': 'auto'})
+        self.assertEqual(self.bot.rooms.effective_config('12')['LISTEN_MODE'], 'auto')
+        self.assertEqual(self.bot.rooms.effective_config('13')['LISTEN_MODE'], 'poll')
+        with patch.object(self.module, 'BilibiliClient', RoomClient):
+            await self.ui.listen('12', True)
+            await wait_for(lambda: self.bot.rooms.live('12'))
+            self.assertEqual(self.bot.rooms.live('12').receiver.mode, 'auto')
+            self.assertEqual(self.bot.rooms.snapshot()[0]['listener']['configured'], 'auto')
+
     async def test_copy_saved_settings_preserves_preview_and_active_state(self):
         await self.ui.dialogue_settings(
             "12", {"KEYWORDS": ["独立词"], "PERSONA_PROMPT": "本房间人格"}

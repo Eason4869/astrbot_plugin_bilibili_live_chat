@@ -24,7 +24,7 @@ from .rooms import RoomError, RoomManager, RoomUnavailable
 from .session import LiveSession
 
 PLUGIN_NAME = "astrbot_plugin_bilibili_live_chat"
-PLUGIN_VERSION = "0.6.0"
+PLUGIN_VERSION = "0.7.0"
 QR_TTL = 180
 VISUAL_QUESTION = re.compile(r"画面|屏幕|镜头|这个|这关|这里|这一幕|怎么过|看得见|看得到")
 
@@ -211,6 +211,9 @@ class LiveChatPlugin(Star):
             raise RoomUnavailable("waiting_login", "请先在控制台或私聊扫码登录。")
         overrides = self.rooms.dialogue_overrides(room)
         effective = {**self.config, **self.rooms.effective_config(room)}
+        listen_mode = effective.get('LISTEN_MODE', 'poll')
+        if listen_mode not in ('poll', 'auto'):
+            raise RoomUnavailable('waiting_config', '请选择有效的弹幕监听方式。')
         provider = str(effective.get("MODEL_PROVIDER_ID") or "").strip()
         if not provider or not self.context.get_provider_by_id(provider):
             raise RoomUnavailable("waiting_config", "请在 WebUI 选择可用的 AstrBot 聊天模型。")
@@ -244,13 +247,15 @@ class LiveChatPlugin(Star):
         model_timeout = bounded_number(self.config, "MODEL_TIMEOUT_SECONDS", 20, 5, 40)
 
         def valid():
+            current_overrides = self.rooms.dialogue_overrides(room)
             return (
                 not self.closing
                 and room in self.rooms.enabled()
                 and self._auth_source() == source
                 and self._credentials(source) == credentials
                 and self.rooms.preview_enabled(room) == preview
-                and self.rooms.dialogue_overrides(room) == overrides
+                and current_overrides == overrides
+                and current_overrides.get('LISTEN_MODE', self.config.get('LISTEN_MODE', 'poll')) == listen_mode
             )
 
         client = BilibiliClient(credentials)
@@ -296,6 +301,7 @@ class LiveChatPlugin(Star):
                 client, canonical, credentials.uid, Conversation(settings, pacing=pacing), generate,
                 poll_seconds=poll_seconds, model_timeout=model_timeout, ignored_users=ignored_users,
                 valid=valid, observer=record, preview=preview,
+                listen_mode=listen_mode,
                 echo_gate=EchoDecision(self.context, effective).check if effective.get('ECHO_DECISION_ENABLED') is True else None,
             )
             media = None

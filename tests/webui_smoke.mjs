@@ -18,10 +18,11 @@ const fixture = {
   settings, account: { source: "local", local: { configured: true, uid: "42" }, bilibot: { configured: false }, memory_enabled: false, memory_available: false },
   environment: { ffmpeg: { available: true, path: "mock-ffmpeg" } },
   providers: [{ id: "chat", label: "Test chat" }], speech_providers: [], personas: [],
-  rooms: ["12", "13"].map(id => ({ id, canonical: id, enabled: true, running: true, phase: "listening", received: 3, replies: 1, previews: 0, remaining: 80, issues: [], preview: false, dialogue: { overrides: {}, effective: settings }, media: { settings: media, transcripts: 2, frames: 4, issues: [] } })),
+  rooms: ["12", "13"].map(id => ({ id, canonical: id, enabled: true, running: true, phase: "listening", received: 3, replies: 1, previews: 0, remaining: 80, issues: [], preview: false, listener: { configured: "poll", source: "poll", phase: "polling", reason: "", retry_in: 0 }, dialogue: { overrides: {}, effective: settings }, media: { settings: media, transcripts: 2, frames: 4, issues: [] } })),
 };
 const injection = `<script>
 window.__calls=[];window.__debugDelay=0;window.__fixture=${JSON.stringify(fixture)};
+window.__setListener=room=>{const mode=room.dialogue.effective.LISTEN_MODE;room.listener={configured:mode,source:mode==='auto'?'websocket':'poll',phase:mode==='auto'?'connected':'polling',reason:'',retry_in:0,heartbeat_age_ms:mode==='auto'?0:null};};
 window.AstrBotPluginView={
  apiGet:async endpoint=>{if(window.__statusFails)throw new Error('mock status unavailable');return {status:'ok',data:window.__fixture};},
  apiPost:async(endpoint,payload)=>{
@@ -44,12 +45,14 @@ window.AstrBotPluginView={
    const room=window.__fixture.rooms.find(room=>room.id===payload.room);
    room.dialogue.overrides=Object.fromEntries(Object.entries({...room.dialogue.overrides,...payload.settings}).filter(([key,value])=>value!==null));
    room.dialogue.effective={...window.__fixture.settings,...room.dialogue.overrides};
+   window.__setListener(room);
    return {status:'ok',data:window.__fixture};
   }
   if(endpoint==='rooms/copy'){
    const source=window.__fixture.rooms.find(room=>room.id===payload.source);
    const target=window.__fixture.rooms.find(room=>room.id===payload.destination);
    target.dialogue=structuredClone(source.dialogue);target.media.settings=structuredClone(source.media.settings);
+   window.__setListener(target);
    return {status:'ok',data:window.__fixture};
   }
   return {status:'ok',data:window.__fixture};
@@ -146,10 +149,19 @@ try {
     row.querySelector('.dialogue-settings').open=true;
     row.querySelector('[data-inherit="KEYWORDS"]').click();
     row.querySelector('[name="KEYWORDS"]').value='房间专用词';
+    row.querySelector('[data-inherit="LISTEN_MODE"]').click();
+    row.querySelector('[name="LISTEN_MODE"]').value='auto';
     row.querySelector('[data-part="dialogue-form"]').requestSubmit();
   }`);
   await until(() => evaluate("window.__fixture.rooms[0].dialogue.overrides.KEYWORDS?.[0]==='房间专用词'"), "room override save");
   assert.equal(await evaluate("window.__fixture.rooms[1].dialogue.overrides.KEYWORDS===undefined"), true);
+  await until(() => evaluate("document.querySelector('[data-room=\"12\"] [data-part=listener]').textContent.includes('长连接已认证')"), "websocket source status");
+  assert.equal(await evaluate("window.__fixture.rooms[1].listener.configured"), "poll");
+  await evaluate("Object.assign(window.__fixture.rooms[0].listener,{source:'poll',phase:'fallback',reason:'模拟回退原因',retry_in:60,heartbeat_age_ms:null});document.getElementById('reload').click()");
+  await until(() => evaluate("document.querySelector('[data-room=\"12\"] [data-part=listener]').textContent.includes('模拟回退原因')"), "fallback reason status");
+  assert.match(await evaluate("document.querySelector('[data-room=\"12\"] [data-part=listener]').textContent"), /60 秒后/);
+  await evaluate("window.__setListener(window.__fixture.rooms[0]);document.getElementById('reload').click()");
+  await until(() => evaluate("!document.querySelector('[data-room=\"12\"] [data-part=listener]').textContent.includes('模拟回退原因')"), "recovered source clears stale reason");
   await evaluate(`{
     const row=document.querySelector('[data-room="13"]');
     row.querySelector('[data-part="copy-source"]').value='12';
@@ -178,7 +190,7 @@ try {
     await writeFile(process.env.SCREENSHOT_PATH, Buffer.from(screenshot.data, "base64"));
   }
   assert.deepEqual(errors, []);
-  console.log("Browser smoke passed: preview persistence, room isolation, safe rendering, polling pause, stale responses, mobile layout.");
+  console.log("Browser smoke passed: preview, room overrides/copy, live source/fallback/recovery, stale requests, safe rendering and mobile layout.");
 } finally {
   socket?.close();
   browser.kill();

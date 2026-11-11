@@ -1,4 +1,5 @@
 const fields = [
+  ["LISTEN_MODE", "弹幕监听方式", "listen"],
   ["MODEL_PROVIDER_ID", "聊天模型", "model"], ["ASTRBOT_PERSONA_ID", "AstrBot 人格", "persona"],
   ["KEYWORDS", "唤醒词（每行一个）", "list"], ["VOICE_KEYWORD_ALIASES", "语音唤醒别名（每行一个）", "list"],
   ["KEYWORD_MODE", "关键词唤醒模式", "bool"], ["CROSS_SOURCE_DEDUP_SECONDS", "语音与弹幕去重窗口（秒）", "number", 0, 30],
@@ -21,6 +22,7 @@ export function createRoomSettings({ call, mutate, showStatus, notice, setMediaF
     return field.value.trim();
   }
   function setValue(field, kind, selected) {
+    if (kind === "listen") field.replaceChildren(new Option("轮询", "poll"), new Option("长连接优先（失败轮询回退）", "auto"));
     if (kind === "model" || kind === "persona") {
       field.replaceChildren(new Option(kind === "model" ? "选择聊天模型" : "不复用人格", ""));
       for (const option of kind === "model" ? providers : personas) field.append(new Option(option.label, option.id));
@@ -68,7 +70,7 @@ export function createRoomSettings({ call, mutate, showStatus, notice, setMediaF
         const fieldLabel = document.createElement("label");
         fieldLabel.className = "field";
         const caption = document.createElement("span"); caption.textContent = label;
-        const input = document.createElement(["model", "persona", "bool"].includes(kind) ? "select" : ["prompt", "list"].includes(kind) ? "textarea" : "input");
+        const input = document.createElement(["model", "persona", "bool", "listen"].includes(kind) ? "select" : ["prompt", "list"].includes(kind) ? "textarea" : "input");
         input.name = key;
         if (kind === "bool") input.append(new Option("开启", "true"), new Option("关闭", "false"));
         if (kind === "number") { input.type = "number"; input.min = min; input.max = max; input.step = "any"; input.required = true; }

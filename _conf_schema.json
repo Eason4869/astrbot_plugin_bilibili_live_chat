@@ -23,6 +23,11 @@
     "default": {},
     "hint": "建议在直播间对话控制台的房间卡片中修改。"
   },
+  "LISTEN_MODE": {
+    "description": "弹幕监听方式", "type": "string", "options": ["poll", "auto"],
+    "labels": ["轮询", "长连接优先（失败轮询回退）"], "default": "poll",
+    "hint": "长连接复用当前扫码或 BiliBot 登录。可先在只预览房间单独启用；失败时轮询并定时重试。"
+  },
   "ROOM_DIALOGUE": {
     "description": "各房间独立对话配置", "type": "dict", "default": {},
     "hint": "在房间卡片编辑，未覆盖的项目继承共享配置。"

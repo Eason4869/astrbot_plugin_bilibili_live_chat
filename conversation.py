@@ -78,6 +78,8 @@ class RoomEvent:
     collection_ms: float | None = None
     transcription_ms: float | None = None
     transcription_queue_ms: float | None = None
+    server_time: int | None = None
+    channel: str = ''
 
 
 Danmaku = RoomEvent

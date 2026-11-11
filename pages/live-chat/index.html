@@ -48,6 +48,7 @@
                 </div>
               </header>
               <p class="caption canonical-room" data-part="canonical" hidden></p>
+              <p class="caption listener-source" data-part="listener" role="status">开始监听后显示接收来源。</p>
               <div class="stats" aria-label="运行统计">
                 <div class="stat"><strong data-part="received">0</strong><span>新弹幕</span></div>
                 <div class="stat"><strong data-part="replies">0</strong><span>已回复</span></div>
@@ -123,6 +124,7 @@
                 <summary>高级设置</summary>
                 <div class="fields">
                   <label class="preference field-wide">关键词唤醒模式<input class="switch" data-field="KEYWORD_MODE" type="checkbox"></label>
+                  <label class="field field-wide"><span>弹幕监听方式</span><select data-field="LISTEN_MODE"><option value="poll">轮询</option><option value="auto">长连接优先（失败轮询回退）</option></select></label>
                   <label class="field field-wide"><span>语音唤醒别名（每行一个，仅用于语音）</span><textarea data-field="VOICE_KEYWORD_ALIASES" rows="2" placeholder="填入转写时常出现的同音词"></textarea></label>
                   <label class="field"><span>语音与弹幕去重窗口（秒，0 关闭）</span><input data-field="CROSS_SOURCE_DEDUP_SECONDS" type="number" min="0" max="30" step="0.1" required></label>
                   <label class="preference field-wide">智能附和判断<input class="switch" data-field="ECHO_DECISION_ENABLED" type="checkbox"></label>

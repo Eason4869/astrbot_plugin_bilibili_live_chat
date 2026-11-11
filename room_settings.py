@@ -17,7 +17,8 @@ NUMBER_FIELDS = {
     "CROSS_SOURCE_DEDUP_SECONDS": (0, 30),
     "ECHO_DECISION_THRESHOLD": (0.5, 1),
 }
-DIALOGUE_FIELDS = (*TEXT_FIELDS, *LIST_FIELDS, *BOOL_FIELDS, *NUMBER_FIELDS)
+ENUM_FIELDS = {'LISTEN_MODE': ('poll', 'auto')}
+DIALOGUE_FIELDS = (*TEXT_FIELDS, *LIST_FIELDS, *BOOL_FIELDS, *NUMBER_FIELDS, *ENUM_FIELDS)
 SCHEMA = json.loads(
     Path(__file__).with_name("_conf_schema.json").read_text(encoding="utf-8")
 )
@@ -51,6 +52,8 @@ def validate_dialogue(payload):
                 )
         elif key in BOOL_FIELDS:
             valid = type(value) is bool
+        elif key in ENUM_FIELDS:
+            valid = isinstance(value, str) and value in ENUM_FIELDS[key]
         else:
             low, high = NUMBER_FIELDS[key]
             valid = type(value) in (int, float) and low <= value <= high

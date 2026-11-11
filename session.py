@@ -3,12 +3,14 @@
 import asyncio
 import json
 import time
-from collections import deque
+from collections import OrderedDict, deque
+from dataclasses import replace
 from uuid import uuid4
 
-from .bilibili import AuthExpired, BilibiliError, RateLimited, SendUnknown
+from .bilibili import AuthExpired, BilibiliError, RateLimited, SendUnknown, uid_text
 from .conversation import MAX_JOB_AGE, SendPacer, parse_reply
 from .debug import RoomDebug
+from .listener import LiveReceiver, ReceiverChanged
 
 
 class LiveSession:
@@ -16,6 +18,7 @@ class LiveSession:
         self, client, room, own_uid, conversation, generate, *,
         poll_seconds=5, model_timeout=20, ignored_users=(), clock=None,
         valid=lambda: True, observer=None, preview=False, echo_gate=None,
+        listen_mode='poll', listener_retry_seconds=60,
     ):
         self.client = client
         self.room = room
@@ -43,13 +46,21 @@ class LiveSession:
         self.seen = set()
         self.seen_order = deque()
         self.last_snapshot = None
-        self.poll_error = ""
         self.send_error = ""
         self.model_error = ""
         self.stop_reason = ""
         self.auth_expired = False
         self.received = 0
         self.replies = 0
+        self.network_seen = OrderedDict()
+        self.receiver = LiveReceiver(
+            client, room, self._accept_snapshot, self._accept_live, lambda: self.running and self.valid(),
+            mode=listen_mode, poll_seconds=poll_seconds, retry_seconds=listener_retry_seconds, clock=self.clock,
+        )
+
+    @property
+    def poll_error(self):
+        return self.receiver.poll_error
 
     async def start(self):
         if self.tasks:
@@ -90,21 +101,41 @@ class LiveSession:
             return False
         return True
 
-    def _accept_snapshot(self, rows, now):
-        baseline = self.last_snapshot is None or now - self.last_snapshot >= MAX_JOB_AGE
+    def _accept_snapshot(self, rows, now, *, force_baseline=False):
+        baseline = force_baseline or self.last_snapshot is None or now - self.last_snapshot >= MAX_JOB_AGE
         self.last_snapshot = now
         for row in rows:
-            if row.key in self.seen:
-                continue
-            if len(self.seen_order) == 1000:
-                self.seen.remove(self.seen_order.popleft())
-            self.seen_order.append(row.key)
-            self.seen.add(row.key)
-            self.debug.add(row)
-            if baseline or row.uid == self.own_uid or row.uid in self.ignored_users:
-                reason = '首次快照或长时间断线，仅建立监听起点。' if baseline else '已忽略自己的账号或忽略名单中的消息。'
-                self.debug.update(row.key, 'skipped', reason)
-                continue
+            self._accept_network(replace(row, channel='poll'), now, baseline)
+
+    def _accept_live(self, row, now):
+        self._accept_network(replace(row, channel='websocket'), now, False)
+
+    def _accept_network(self, row, now, baseline):
+        if row.key in self.seen:
+            return
+        if len(self.seen_order) == 1000:
+            self.seen.remove(self.seen_order.popleft())
+        self.seen_order.append(row.key)
+        self.seen.add(row.key)
+        self.debug.add(row)
+        duplicate = False
+        if row.server_time is not None:
+            identity = (row.uid, row.text, row.server_time)
+            previous = self.network_seen.get(identity)
+            duplicate = bool(previous and previous[0] != row.channel and 0 <= now - previous[1] < MAX_JOB_AGE)
+            if not duplicate:
+                self.network_seen[identity] = (row.channel, now)
+                self.network_seen.move_to_end(identity)
+                while len(self.network_seen) > 1000:
+                    self.network_seen.popitem(last=False)
+        if duplicate:
+            self.receiver.duplicates += 1
+            self.debug.update(row.key, 'skipped', '已由另一个监听来源处理，跳过重复弹幕。')
+        elif baseline:
+            self.debug.update(row.key, 'skipped', '首次快照或来源切换，仅建立监听起点。')
+        elif not uid_text(row.uid) or row.uid == self.own_uid or row.uid in self.ignored_users:
+            self.debug.update(row.key, 'skipped', '已忽略未知身份、自己的账号或忽略名单中的消息。')
+        else:
             self.received += 1
             self.conversation.offer(row, now)
             self.ready.set()
@@ -121,25 +152,13 @@ class LiveSession:
             self.debug.update(event.key, 'skipped', reason)
 
     async def _poll(self):
-        while await self._can_run():
-            delay = self.poll_seconds
-            try:
-                rows = await self.client.history(self.room)
-                if not await self._can_run():
-                    return
-                self._accept_snapshot(rows, self.clock())
-                self.poll_error = ""
-            except AuthExpired:
-                self.auth_expired = True
-                await self._halt("登录已失效，请重新扫码")
-                return
-            except RateLimited:
-                self.poll_error = "B 站暂时限制弹幕读取"
-                delay = max(60, delay)
-            except BilibiliError as exc:
-                self.poll_error = str(exc) or "弹幕读取失败"
-                delay = max(10, delay)
-            await asyncio.sleep(delay)
+        try:
+            await self.receiver.run()
+        except AuthExpired:
+            self.auth_expired = True
+            await self._halt('登录已失效，请重新扫码')
+        except ReceiverChanged:
+            await self._halt('房间或登录状态已变更，请重新开始')
 
     async def _reply(self):
         while await self._can_run():

@@ -139,6 +139,12 @@ function showRooms(rooms) {
     const canonical = part("canonical");
     canonical.hidden = !room.canonical || room.canonical === room.id;
     canonical.textContent = canonical.hidden ? "" : "实际房间号 " + room.canonical;
+    const listener = room.listener;
+    const actual = listener?.source === "websocket" ? "长连接已认证" : listener?.source === "poll" ? "轮询" : "未连接";
+    const retry = listener?.retry_in > 0 ? " · " + listener.retry_in + " 秒后重试长连接" : "";
+    const connecting = listener?.phase === "connecting" ? " · 正在连接长连接" : "";
+    const heartbeat = listener?.heartbeat_age_ms != null ? " · 心跳 " + Math.round(listener.heartbeat_age_ms / 1000) + " 秒前" : "";
+    part("listener").textContent = "接收来源：" + actual + connecting + heartbeat + retry + (listener?.reason ? " · " + listener.reason : "");
     part("received").textContent = room.received;
     part("replies").textContent = room.replies;
     part("window").textContent = room.remaining > 0 ? room.remaining + " 秒" : "未唤醒";

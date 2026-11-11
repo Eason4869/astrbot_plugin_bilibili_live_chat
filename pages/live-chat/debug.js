@@ -91,7 +91,8 @@ export function createRoomDebug({ call, mutate, showStatus, notice, busy }) {
       if (list.children[index] !== item) list.insertBefore(item, list.children[index] ?? null);
       item.dataset.status = event.status;
       const time = new Date(event.at).toLocaleTimeString();
-      item.querySelector("summary").textContent = time + " · " + (sources[event.source] || "输入") + " · " + (statuses[event.status] || event.status);
+      const channel = event.channel === "websocket" ? "长连接" : event.channel === "poll" ? "轮询" : "";
+      item.querySelector("summary").textContent = time + " · " + [sources[event.source] || "输入", channel, statuses[event.status] || event.status].filter(Boolean).join(" · ");
       item.querySelector(".debug-input").textContent = (event.name ? event.name + "：" : "") + (event.text || "（无识别文本）");
       item.querySelector(".debug-reason").textContent = (event.keyword ? "命中「" + event.keyword + "」 · " : "") + [event.decision, event.reason].filter(Boolean).join(" · ");
       const output = item.querySelector(".debug-output");

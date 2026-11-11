@@ -35,7 +35,7 @@ TEXT_LIMITS = {
 PUBLIC_FIELDS = (
     "AUTH_SOURCE", "KEYWORDS", "IGNORE_UIDS", "KEYWORD_MODE",
     "ECHO_ENABLED", "BILIBOT_MEMORY_ENABLED", *TEXT_LIMITS, *NUMBER_LIMITS,
-    'VOICE_KEYWORD_ALIASES', 'ECHO_DECISION_ENABLED',
+    'VOICE_KEYWORD_ALIASES', 'ECHO_DECISION_ENABLED', 'LISTEN_MODE',
 )
 SCHEMA = json.loads(Path(__file__).with_name("_conf_schema.json").read_text(encoding="utf-8"))
 
@@ -74,6 +74,8 @@ def validated_settings(payload):
             value = value.strip()
         if key == "AUTH_SOURCE" and value not in ("local", "bilibot"):
             raise DashboardError("请选择有效的登录来源。")
+        if key == 'LISTEN_MODE' and value not in ('poll', 'auto'):
+            raise DashboardError('请选择轮询或长连接优先。')
         result[key] = value
     return result
 
@@ -202,6 +204,7 @@ class Dashboard:
             'room': room, 'session': live.id if live else '', 'running': bool(live and live.running),
             'preview': self.plugin.rooms.preview_enabled(room), 'frame': None,
             **(live.debug.snapshot() if live else {'events': [], 'limit': 50}),
+            'listener': live.receiver.snapshot() if live else None,
         }
         if live and live.running and live.media:
             frame = live.media.latest_frame()

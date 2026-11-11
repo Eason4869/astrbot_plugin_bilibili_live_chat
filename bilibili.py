@@ -4,6 +4,7 @@ import hashlib
 import json
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
@@ -93,7 +94,11 @@ def parse_history(rows):
         name = " ".join(str(row.get("nickname") or row.get("uname") or "观众").split())[:32]
         identity = row.get("id_str") or (row.get("rnd"), timeline, uid, text)
         key = hashlib.sha256(json.dumps(identity, ensure_ascii=True).encode()).hexdigest()
-        messages.append((timeline, Danmaku(key, uid, name, text)))
+        try:
+            stamp = int(datetime.strptime(timeline, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone(timedelta(hours=8))).timestamp())
+        except (ValueError, OverflowError):
+            stamp = None
+        messages.append((timeline, Danmaku(key, uid, name, text, server_time=stamp, channel='poll')))
     return [message for _, message in sorted(messages, key=lambda item: item[0])]
 
 
@@ -128,24 +133,39 @@ def playback_urls(data):
     return tuple(dict.fromkeys(url for _, url in sorted(candidates, key=lambda item: item[0])))
 
 
+async def _reject_redirect(_session, _context, params):
+    params.response.close()
+    raise BilibiliError('长连接握手不允许重定向。')
+
+
 class BilibiliClient:
     def __init__(self, credentials: Credentials | None = None):
         self.credentials = credentials
         self.session: aiohttp.ClientSession | None = None
+        self.live_buvid = ''
+
+    def live_events(self, room, *, attempt=0):
+        from .live_socket import LiveSocket
+
+        return LiveSocket(self, room, server_index=attempt).events()
 
     async def close(self):
         if self.session is not None:
             await self.session.close()
 
-    async def _request(self, method, url, *, authenticated=False, headers=None, **kwargs):
+    async def _request(self, method, url, *, authenticated=False, headers=None, extra_cookies=None, **kwargs):
         if self.session is None:
+            trace = aiohttp.TraceConfig()
+            trace.on_request_redirect.append(_reject_redirect)
             self.session = aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=10),
                 cookie_jar=aiohttp.DummyCookieJar(),
                 headers={"User-Agent": USER_AGENT},
+                trace_configs=[trace],
             )
         try:
-            cookies = self.credentials.cookies() if authenticated and self.credentials else None
+            cookies = self.credentials.cookies() if authenticated and self.credentials else {}
+            cookies.update(extra_cookies or {})
             async with self.session.request(
                 method, url, cookies=cookies, headers=headers, allow_redirects=False, **kwargs
             ) as response:
