@@ -1,0 +1,181 @@
+{
+  "ROOM_ID": {
+    "description": "旧版房间号（自动迁移）",
+    "type": "string",
+    "default": "",
+    "hint": "从旧版升级时自动导入。新房间请在直播间对话控制台添加。"
+  },
+  "ROOM_IDS": {
+    "description": "直播间列表",
+    "type": "list",
+    "default": [],
+    "hint": "可在直播间对话控制台添加或移除房间。"
+  },
+  "ENABLED_ROOMS": {
+    "description": "已开启监听的房间",
+    "type": "list",
+    "default": [],
+    "hint": "由各房间的开始与停止操作保存，用于重载和重启后恢复。"
+  },
+  "ROOM_MEDIA": {
+    "description": "各房间音视频识别设置",
+    "type": "dict",
+    "default": {},
+    "hint": "建议在直播间对话控制台的房间卡片中修改。"
+  },
+  "FFMPEG_PATH": {
+    "description": "FFmpeg 程序路径",
+    "type": "string",
+    "default": "",
+    "hint": "留空自动查找系统或依赖自带的 FFmpeg。远程部署时填写 AstrBot 所在机器或容器内的路径，也可填 bin 目录。"
+  },
+  "MODEL_PROVIDER_ID": {
+    "description": "AstrBot 聊天模型",
+    "type": "string",
+    "_special": "select_provider",
+    "default": ""
+  },
+  "KEYWORD_MODE": {
+    "description": "关键词唤醒模式",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后先喊唤醒词，窗口内可继续接话。关闭后普通弹幕也能触发回复。"
+  },
+  "KEYWORDS": {
+    "description": "自定义唤醒词",
+    "type": "list",
+    "default": [],
+    "hint": "每项填写一个词。支持多个词，忽略大小写和全半角差异。关键词模式下留空时无法启动。"
+  },
+  "WINDOW_SECONDS": {
+    "description": "唤醒窗口（秒）",
+    "type": "int",
+    "default": 90,
+    "hint": "范围 0–3600，设为 0 时只回复带唤醒词的弹幕。"
+  },
+  "WINDOW_EXTEND_SECONDS": {
+    "description": "成功回复后续时（秒）",
+    "type": "int",
+    "default": 45,
+    "hint": "范围 0–3600。"
+  },
+  "WINDOW_MAX_SECONDS": {
+    "description": "单轮唤醒窗口上限（秒）",
+    "type": "int",
+    "default": 300,
+    "hint": "范围 1–7200，从首次唤醒起计算。"
+  },
+  "ECHO_ENABLED": {
+    "description": "窗口外低频附和",
+    "type": "bool",
+    "default": false,
+    "hint": "只在关键词模式下生效，跳过明显的问题。"
+  },
+  "ECHO_INTERVAL_SECONDS": {
+    "description": "两次附和的最短间隔（秒）",
+    "type": "int",
+    "default": 180,
+    "hint": "范围 10–3600。"
+  },
+  "ECHO_PROBABILITY": {
+    "description": "可附和弹幕的采样概率",
+    "type": "float",
+    "default": 0.5,
+    "hint": "范围 0–1。"
+  },
+  "ASTRBOT_PERSONA_ID": {
+    "description": "复用 AstrBot 人格",
+    "type": "string",
+    "_special": "select_persona",
+    "default": "",
+    "hint": "可选。选中的人格用于正式回复和低频附和。"
+  },
+  "PERSONA_PROMPT": {
+    "description": "直播人格补充提示词",
+    "type": "text",
+    "default": ""
+  },
+  "REPLY_INSTRUCTION": {
+    "description": "正式回复附加提示词",
+    "type": "text",
+    "default": ""
+  },
+  "ECHO_INSTRUCTION": {
+    "description": "附和专用提示词",
+    "type": "text",
+    "default": ""
+  },
+  "REPLY_COOLDOWN_SECONDS": {
+    "description": "发送冷却（秒）",
+    "type": "int",
+    "default": 12,
+    "hint": "范围 2–120，所有回复共用。"
+  },
+  "MAX_PER_MINUTE": {
+    "description": "每分钟发送尝试上限",
+    "type": "int",
+    "default": 4,
+    "hint": "范围 1–30。"
+  },
+  "MAX_REPLY_CHARS": {
+    "description": "单条回复字数上限",
+    "type": "int",
+    "default": 20,
+    "hint": "范围 2–40，以 B 站账号实际限制为准。"
+  },
+  "POLL_SECONDS": {
+    "description": "轮询间隔（秒）",
+    "type": "int",
+    "default": 5,
+    "hint": "范围 2–30。"
+  },
+  "MODEL_TIMEOUT_SECONDS": {
+    "description": "生成回复的最长等待（秒）",
+    "type": "int",
+    "default": 20,
+    "hint": "范围 5–40，包含可选记忆召回。"
+  },
+  "IGNORE_UIDS": {
+    "description": "忽略的 B 站 UID",
+    "type": "list",
+    "default": []
+  },
+  "AUTH_SOURCE": {
+    "description": "B 站登录来源",
+    "type": "string",
+    "options": [
+      "local",
+      "bilibot"
+    ],
+    "labels": [
+      "独立登录",
+      "复用 BiliBot 登录"
+    ],
+    "default": "local",
+    "hint": "复用模式需要已启用、已登录的 BiliBot。"
+  },
+  "BILIBOT_MEMORY_ENABLED": {
+    "description": "联动 BiliBot 直播记忆",
+    "type": "bool",
+    "default": false,
+    "hint": "使用同房间、同 UID 的直播记忆，并记录已成功发送的正式回复。可与登录来源分别设置。"
+  },
+  "SESSDATA": {
+    "description": "独立登录 SESSDATA",
+    "type": "string",
+    "secret": true,
+    "default": "",
+    "hint": "通常由扫码登录自动填入。"
+  },
+  "BILI_JCT": {
+    "description": "独立登录 bili_jct",
+    "type": "string",
+    "secret": true,
+    "default": ""
+  },
+  "DEDE_USER_ID": {
+    "description": "独立登录账号 UID",
+    "type": "string",
+    "default": ""
+  }
+}

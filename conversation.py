@@ -1,0 +1,224 @@
+"""Room-local conversation policy. All time values use a monotonic clock."""
+
+import asyncio
+import json
+import random
+import re
+import unicodedata
+from collections import deque
+from dataclasses import dataclass, field
+
+MAX_JOB_AGE = 45
+QUESTION = re.compile(r"[?？]|为什么|怎么|如何|哪里|哪儿|是不是|有没有|能不能|要不要|该不该|[吗么呢]$")
+CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
+
+
+def bounded_number(config, key, default, low, high):
+    try:
+        value = type(default)(config.get(key, default))
+    except (ValueError, TypeError, OverflowError):
+        return default
+    return value if low <= value <= high else default
+
+
+def normalized_keyword(text):
+    return unicodedata.normalize("NFKC", text).strip().casefold()
+
+
+@dataclass(frozen=True)
+class ConversationSettings:
+    keywords: tuple[str, ...]
+    keyword_mode: bool
+    window_seconds: int
+    window_extension: int
+    window_limit: int
+    echo_enabled: bool
+    echo_interval: int
+    echo_probability: float
+    cooldown: int
+    per_minute: int
+    max_chars: int
+
+    @classmethod
+    def from_config(cls, config):
+        words = config.get("KEYWORDS", [])
+        keywords = tuple(
+            dict.fromkeys(normalized_keyword(word) for word in words if isinstance(word, str))
+        ) if isinstance(words, list) else ()
+        return cls(
+            keywords=tuple(word for word in keywords if word),
+            keyword_mode=config.get("KEYWORD_MODE", True) is True,
+            window_seconds=bounded_number(config, "WINDOW_SECONDS", 90, 0, 3600),
+            window_extension=bounded_number(config, "WINDOW_EXTEND_SECONDS", 45, 0, 3600),
+            window_limit=bounded_number(config, "WINDOW_MAX_SECONDS", 300, 1, 7200),
+            echo_enabled=config.get("ECHO_ENABLED", False) is True,
+            echo_interval=bounded_number(config, "ECHO_INTERVAL_SECONDS", 180, 10, 3600),
+            echo_probability=bounded_number(config, "ECHO_PROBABILITY", 0.5, 0, 1),
+            cooldown=bounded_number(config, "REPLY_COOLDOWN_SECONDS", 12, 2, 120),
+            per_minute=bounded_number(config, "MAX_PER_MINUTE", 4, 1, 30),
+            max_chars=bounded_number(config, "MAX_REPLY_CHARS", 20, 2, 40),
+        )
+
+
+@dataclass(frozen=True)
+class RoomEvent:
+    key: str
+    uid: str
+    name: str
+    text: str
+    source: str = "danmaku"
+    frame: bytes | None = field(default=None, repr=False)
+
+
+Danmaku = RoomEvent
+
+
+@dataclass(frozen=True)
+class Job:
+    message: RoomEvent
+    mode: str
+    offered_at: float
+    window: int
+    context: tuple[tuple[str, str], ...]
+
+
+class SendPacer:
+    """Send budget shared by all rooms using one Bilibili account."""
+
+    def __init__(self):
+        self.attempts: deque[float] = deque()
+        self.last_attempt = float("-inf")
+        self.blocked_until = float("-inf")
+        self.lock = asyncio.Lock()
+
+    def delay(self, settings, now):
+        while self.attempts and now - self.attempts[0] >= 60:
+            self.attempts.popleft()
+        cooldown = self.last_attempt + settings.cooldown - now
+        rate_wait = self.attempts[0] + 60 - now if len(self.attempts) >= settings.per_minute else 0
+        return max(0, cooldown, rate_wait, self.blocked_until - now)
+
+    def attempted(self, now):
+        self.attempts.append(now)
+        self.last_attempt = now
+
+    def block(self, until):
+        self.blocked_until = max(self.blocked_until, until)
+
+
+class Conversation:
+    def __init__(self, settings: ConversationSettings, roll=random.random, *, pacing=None):
+        self.settings = settings
+        self.roll = roll
+        self.window_until = 0.0
+        self.window_started = 0.0
+        self.window = 0
+        self.pending: dict[str, Job] = {}
+        self.history: deque[tuple[str, str]] = deque(maxlen=10)
+        self.pacing = pacing if pacing is not None else SendPacer()
+        self.last_echo = float("-inf")
+
+    def window_active(self, now):
+        return now < self.window_until
+
+    def offer(self, message: RoomEvent, now: float):
+        mode = self._classify(message, now)
+        if mode:
+            self.pending[mode] = Job(message, mode, now, self.window, tuple(self.history))
+        if message.source != "vision":
+            self.history.append((message.name, message.text))
+
+    def _classify(self, message, now):
+        settings = self.settings
+        text = message.text
+        if message.source == "vision":
+            return None if self.window_active(now) else self._echo(text, now)
+        if not settings.keyword_mode:
+            return "conversation" if message.source == "danmaku" else self._echo(text, now)
+        if not settings.keywords:
+            return None
+        normalized = normalized_keyword(text)
+        if any(word in normalized for word in settings.keywords):
+            if not self.window_active(now):
+                self.window += 1
+                self.window_started = now
+                self.window_until = now + min(settings.window_seconds, settings.window_limit)
+            self.pending.pop("echo", None)
+            return "wake"
+        if self.window_active(now):
+            return "conversation"
+        return self._echo(text, now)
+
+    def _echo(self, text, now):
+        settings = self.settings
+        if (
+            settings.echo_enabled
+            and now - self.last_echo >= settings.echo_interval
+            and not QUESTION.search(text)
+            and self.roll() < settings.echo_probability
+        ):
+            return "echo"
+        return None
+
+    def is_current(self, job: Job, now: float):
+        if now - job.offered_at >= MAX_JOB_AGE:
+            return False
+        if not self.settings.keyword_mode:
+            return True
+        if job.mode == "wake" and self.settings.window_seconds == 0:
+            return True
+        if job.window != self.window:
+            return False
+        return self.window_active(now) == (job.mode != "echo")
+
+    def delay(self, now: float):
+        return self.pacing.delay(self.settings, now)
+
+    def take(self, now: float):
+        if self.delay(now):
+            return None
+        for mode in ("wake", "conversation", "echo"):
+            job = self.pending.pop(mode, None)
+            if job is None or not self.is_current(job, now):
+                continue
+            if mode == "echo":
+                if now - self.last_echo < self.settings.echo_interval:
+                    continue
+                self.last_echo = now
+            return job
+        return None
+
+    def attempted(self, now: float):
+        self.pacing.attempted(now)
+
+    def sent(self, job: Job, now: float, text=""):
+        if text:
+            self.history.append(("Bot", text))
+        if job.mode == "echo":
+            self.last_echo = now
+        elif self.settings.keyword_mode and self.is_current(job, now) and self.window_active(now):
+            self.window_until = min(
+                self.window_until + self.settings.window_extension,
+                self.window_started + self.settings.window_limit,
+            )
+
+
+def parse_reply(raw: str, mode: str, max_chars: int):
+    if not isinstance(raw, str) or len(raw) > 2048:
+        return None
+    try:
+        fields = json.loads(raw, object_pairs_hook=list)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(fields, list) or len(fields) != 1 or not isinstance(fields[0], tuple):
+        return None
+    key, reply = fields[0]
+    if key != "reply" or not isinstance(reply, str) or CONTROL.search(reply):
+        return None
+    reply = reply.strip()
+    if mode == "echo":
+        if not 2 <= len(reply) <= min(15, max_chars) or QUESTION.search(reply) or re.search(r"[@＠]", reply):
+            return None
+    elif not 1 <= len(reply) <= max_chars:
+        return None
+    return reply

@@ -1,0 +1,24 @@
+name: Plugin checks
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: astrbot_plugin_bilibili_live_chat
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install -r astrbot_plugin_bilibili_live_chat/requirements.txt ruff
+      - run: python -B -m unittest discover -s astrbot_plugin_bilibili_live_chat/tests
+      - run: ruff check --no-cache astrbot_plugin_bilibili_live_chat
+      - run: node --check astrbot_plugin_bilibili_live_chat/pages/live-chat/app.js
