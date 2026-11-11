@@ -1,0 +1,2 @@
+# Keep checks aligned with the plugin's Python 3.10-compatible syntax and APIs.
+target-version = "py310"
