@@ -13,8 +13,11 @@ const schema = JSON.parse(await readFile(path.join(root, "_conf_schema.json"), "
 const settings = Object.fromEntries(Object.entries(schema).map(([key, value]) => [key, value.default]));
 settings.MODEL_PROVIDER_ID = "chat";
 settings.KEYWORDS = ["小猫"];
+settings.WINDOW_SECONDS = 90;
+settings.ECHO_ENABLED = true;
 const media = { audio: true, video: true, stt_provider: "", vision_provider: "", audio_segment: 6, frame_interval: 5, echo_interval: null, echo_probability: null, scene_threshold: 24, scene_confirm_frames: 1, ignored_regions: [] };
 const fixture = {
+  builtin_prompt: '先判断当前话是否在对你说。不要为了活跃气氛而插话。没有新增信息时保持安静。',
   settings, account: { source: "local", local: { configured: true, uid: "42" }, bilibot: { configured: false }, memory_enabled: false, memory_available: false },
   environment: { ffmpeg: { available: true, path: "mock-ffmpeg" } },
   providers: [{ id: "chat", label: "Test chat" }], speech_providers: [], personas: [],
@@ -27,6 +30,12 @@ window.AstrBotPluginView={
  apiGet:async endpoint=>{if(window.__statusFails)throw new Error('mock status unavailable');return {status:'ok',data:window.__fixture};},
  apiPost:async(endpoint,payload)=>{
   window.__calls.push({endpoint,payload});
+  if(endpoint==='settings'){
+   if(window.__saveFails)throw new Error('mock save failed');
+   Object.assign(window.__fixture.settings,payload);
+   for(const room of window.__fixture.rooms)room.dialogue.effective={...window.__fixture.settings,...room.dialogue.overrides};
+   return {status:'ok',data:window.__fixture};
+  }
   if(endpoint==='debug'){
    const room=window.__fixture.rooms.find(room=>room.id===payload.room);
    const data={room:room.id,session:'mock:'+room.id,running:true,preview:room.preview,frame:null,events:[{
@@ -117,7 +126,43 @@ try {
     return data.result.value;
   };
   await send("Runtime.enable");
+  await send("Emulation.setDeviceMetricsOverride", { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await until(() => evaluate("document.querySelectorAll('[data-room]').length===2"), "room rendering");
+  if (process.env.DESKTOP_SCREENSHOT_PATH) {
+    const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+    await writeFile(process.env.DESKTOP_SCREENSHOT_PATH, Buffer.from(screenshot.data, "base64"));
+  }
+  await evaluate("document.querySelector('[data-view-target=strategy]').click()");
+  assert.equal(await evaluate("document.querySelector('[data-view=strategy]').hidden"), false);
+  assert.equal(await evaluate("document.querySelector('[data-view=rooms]').hidden"), true);
+  const settingsCalls = await evaluate("window.__calls.filter(call=>call.endpoint==='settings').length");
+  await evaluate("document.querySelector('[data-preset=balanced]').click()");
+  assert.equal(await evaluate("document.querySelector('[data-field=WINDOW_SECONDS]').value"), "30");
+  assert.equal(await evaluate("document.querySelector('[data-field=FOLLOWUP_SCOPE]').value"), "speaker");
+  assert.equal(await evaluate("document.querySelector('[data-field=VOICE_FOLLOWUP_ENABLED]').checked"), false);
+  assert.equal(await evaluate("window.__calls.filter(call=>call.endpoint==='settings').length"), settingsCalls, "preset must not save immediately");
+  assert.match(await evaluate("document.getElementById('save-state').textContent"), /未保存/);
+  await evaluate("document.getElementById('reload').click()");
+  await pause(300);
+  assert.equal(await evaluate("document.querySelector('[data-field=WINDOW_SECONDS]').value"), "30", "refresh must preserve shared edits");
+  await evaluate("window.__saveFails=true;document.getElementById('save-settings').click()");
+  await until(() => evaluate("document.getElementById('toast').textContent.includes('mock save failed')"), "save failure");
+  assert.equal(await evaluate("document.querySelector('[data-field=WINDOW_SECONDS]').value"), "30", "failed save preserves edits");
+  await evaluate("window.__saveFails=false;document.getElementById('save-settings').click()");
+  await until(() => evaluate("window.__fixture.settings.WINDOW_SECONDS===30"), "save shared strategy");
+  await until(() => evaluate("document.getElementById('save-state').textContent.includes('已保存')"), "saved state");
+  await evaluate("document.querySelector('[data-preset=quiet]').click();document.getElementById('restore-settings').click()");
+  assert.equal(await evaluate("document.querySelector('[data-field=WINDOW_SECONDS]').value"), "30");
+  await evaluate("document.querySelector('[data-view-target=models]').click()");
+  assert.match(await evaluate("document.getElementById('builtin-prompt').textContent"), /保持安静/);
+  await evaluate("document.querySelector('[data-field=PERSONA_PROMPT]').value='像猫咪一样说话';document.querySelector('[data-field=PERSONA_PROMPT]').dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('[data-view-target=strategy]').click()");
+  assert.match(await evaluate("document.getElementById('save-state').textContent"), /未保存/);
+  if (process.env.STRATEGY_SCREENSHOT_PATH) {
+    await evaluate("document.getElementById('toast').hidden=true;window.scrollTo(0,0);document.activeElement.blur()");
+    const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+    await writeFile(process.env.STRATEGY_SCREENSHOT_PATH, Buffer.from(screenshot.data, "base64"));
+  }
+  await evaluate("document.getElementById('restore-settings').click();document.querySelector('[data-view-target=rooms]').click()");
   await evaluate("document.querySelector('[data-room=\"12\"] [data-part=debug]').open=true");
   await until(() => evaluate("document.querySelectorAll('[data-room=\"12\"] .debug-events li').length===1"), "debug rendering");
   assert.equal(await evaluate("Boolean(window.__xss || document.querySelector('.debug-events img'))"), false, "untrusted input must stay text");
@@ -156,6 +201,15 @@ try {
   await until(() => evaluate("window.__fixture.rooms[0].dialogue.overrides.KEYWORDS?.[0]==='房间专用词'"), "room override save");
   assert.equal(await evaluate("window.__fixture.rooms[1].dialogue.overrides.KEYWORDS===undefined"), true);
   await until(() => evaluate("document.querySelector('[data-room=\"12\"] [data-part=listener]').textContent.includes('长连接已认证')"), "websocket source status");
+  await evaluate(`{
+    const row=document.querySelector('[data-room="12"]');
+    row.querySelector('[data-inherit="ECHO_DECISION_THRESHOLD"]').click();
+    const input=row.querySelector('[name="ECHO_DECISION_THRESHOLD"]');
+    input.value='';input.closest('details').open=false;
+    row.querySelector('[data-part="dialogue-form"]').requestSubmit();
+  }`);
+  assert.equal(await evaluate("document.querySelector('[data-room=\"12\"] [name=ECHO_DECISION_THRESHOLD]').closest('details').open"), true, "room validation must reveal hidden invalid input");
+  await evaluate("document.querySelector('[data-room=\"12\"] [data-part=dialogue-restore]').click()");
   assert.equal(await evaluate("window.__fixture.rooms[1].listener.configured"), "poll");
   await evaluate("Object.assign(window.__fixture.rooms[0].listener,{source:'poll',phase:'fallback',reason:'模拟回退原因',retry_in:60,heartbeat_age_ms:null});document.getElementById('reload').click()");
   await until(() => evaluate("document.querySelector('[data-room=\"12\"] [data-part=listener]').textContent.includes('模拟回退原因')"), "fallback reason status");
@@ -186,11 +240,20 @@ try {
   await pause(200);
   assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"), true, "mobile layout must not overflow");
   if (process.env.SCREENSHOT_PATH) {
+    await evaluate("document.getElementById('toast').hidden=true;window.scrollTo(0,0);document.activeElement.blur()");
     const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
     await writeFile(process.env.SCREENSHOT_PATH, Buffer.from(screenshot.data, "base64"));
   }
   assert.deepEqual(errors, []);
-  console.log("Browser smoke passed: preview, room overrides/copy, live source/fallback/recovery, stale requests, safe rendering and mobile layout.");
+  for (const view of ['strategy', 'models', 'account', 'rooms']) {
+    await evaluate(`document.querySelector('[data-view-target=${view}]').click()`);
+    assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"), true, view + " mobile layout must not overflow");
+    if (view === 'strategy' && process.env.MOBILE_STRATEGY_SCREENSHOT_PATH) {
+      const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true });
+      await writeFile(process.env.MOBILE_STRATEGY_SCREENSHOT_PATH, Buffer.from(screenshot.data, "base64"));
+    }
+  }
+  console.log("Browser smoke passed: navigation, presets, shared save/restore/failure, preview, room overrides/copy, listener recovery, safe rendering and all mobile views.");
 } finally {
   socket?.close();
   browser.kill();

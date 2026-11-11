@@ -6,11 +6,17 @@ import random
 import re
 import unicodedata
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from difflib import SequenceMatcher
 
 MAX_JOB_AGE = 45
 QUESTION = re.compile(r"[?？]|为什么|怎么|如何|哪里|哪儿|是不是|有没有|能不能|要不要|该不该|[吗么呢]$")
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
+PRIORITY = {"wake": 3, "conversation": 2, "echo": 1}
+MEANING_MARKERS = re.compile(
+    r"[+\-−]?\d+(?:[.,:/-]\d+)*|[零〇一二三四五六七八九十百千万亿两点]+|正|负|不|没|无|别|勿|未|非|莫|甭|休"
+    r"|\b[a-z]+n['’]t\b|\b(?:not|never|no|minus|plus)\b"
+)
 
 
 def bounded_number(config, key, default, low, high):
@@ -40,6 +46,9 @@ class ConversationSettings:
     max_chars: int
     voice_aliases: tuple[str, ...] = ()
     dedup_seconds: float = 5.0
+    followup_scope: str = "speaker"
+    voice_followup: bool = False
+    vision_echo: bool = False
 
     @classmethod
     def from_config(cls, config):
@@ -50,19 +59,22 @@ class ConversationSettings:
         return cls(
             keywords=tuple(word for word in keywords if word),
             keyword_mode=config.get("KEYWORD_MODE", True) is True,
-            window_seconds=bounded_number(config, "WINDOW_SECONDS", 90, 0, 3600),
-            window_extension=bounded_number(config, "WINDOW_EXTEND_SECONDS", 45, 0, 3600),
-            window_limit=bounded_number(config, "WINDOW_MAX_SECONDS", 300, 1, 7200),
+            window_seconds=bounded_number(config, "WINDOW_SECONDS", 30, 0, 3600),
+            window_extension=bounded_number(config, "WINDOW_EXTEND_SECONDS", 0, 0, 3600),
+            window_limit=bounded_number(config, "WINDOW_MAX_SECONDS", 90, 1, 7200),
             echo_enabled=config.get("ECHO_ENABLED", False) is True,
-            echo_interval=bounded_number(config, "ECHO_INTERVAL_SECONDS", 180, 10, 3600),
-            echo_probability=bounded_number(config, "ECHO_PROBABILITY", 0.5, 0, 1),
-            cooldown=bounded_number(config, "REPLY_COOLDOWN_SECONDS", 12, 2, 120),
-            per_minute=bounded_number(config, "MAX_PER_MINUTE", 4, 1, 30),
+            echo_interval=bounded_number(config, "ECHO_INTERVAL_SECONDS", 300, 10, 3600),
+            echo_probability=bounded_number(config, "ECHO_PROBABILITY", 0.2, 0, 1),
+            cooldown=bounded_number(config, "REPLY_COOLDOWN_SECONDS", 20, 2, 120),
+            per_minute=bounded_number(config, "MAX_PER_MINUTE", 2, 1, 30),
             max_chars=bounded_number(config, "MAX_REPLY_CHARS", 20, 2, 40),
             voice_aliases=tuple(normalized_keyword(word) for word in config.get('VOICE_KEYWORD_ALIASES', [])
                                 if isinstance(word, str) and normalized_keyword(word))
             if isinstance(config.get('VOICE_KEYWORD_ALIASES', []), list) else (),
             dedup_seconds=bounded_number(config, 'CROSS_SOURCE_DEDUP_SECONDS', 5.0, 0, 30),
+            followup_scope="room" if config.get("FOLLOWUP_SCOPE") == "room" else "speaker",
+            voice_followup=config.get("VOICE_FOLLOWUP_ENABLED", False) is True,
+            vision_echo=config.get("VISION_ECHO_ENABLED", False) is True,
         )
 
 
@@ -133,6 +145,7 @@ class Conversation:
         self.decision_reason = ""
         self.matched_keyword = ""
         self.recent_inputs = deque(maxlen=50)
+        self.participants = set()
 
     def window_active(self, now):
         return now < self.window_until
@@ -144,34 +157,67 @@ class Conversation:
 
     def offer(self, message: RoomEvent, now: float):
         self.matched_keyword = ""
-        text_key = re.sub(r'[\W_]+', '', normalized_keyword(message.text))
-        priority = 3 if self.settings.keyword_mode and self._keyword(message) else (
+        normalized = normalized_keyword(message.text)
+        text_key = re.sub(r'[\W_]+', '', normalized)
+        # Capture numbers and negation before removing punctuation (1.5 != 15).
+        fingerprint = (text_key, tuple(MEANING_MARKERS.findall(normalized)))
+        priority = 3 if self._keyword(message) and (self.settings.keyword_mode or message.source == 'voice') else (
             2 if self.window_active(now) or (not self.settings.keyword_mode and message.source == 'danmaku') else 1)
         if (message.source in ('voice', 'danmaku') and len(text_key) >= 2 and self.settings.dedup_seconds
-            and any(key == text_key and source != message.source and 0 <= now - at < self.settings.dedup_seconds
+            and any(self._same_input(key, fingerprint) and source != message.source and 0 <= now - at < self.settings.dedup_seconds
                     and previous_priority >= priority for key, source, at, previous_priority in self.recent_inputs)):
+            if self.window_active(now) and self._keyword(message) and message.source == "danmaku" and message.uid:
+                self.participants.add(message.uid)
             self.observe(message.key, 'skipped', '近期语音和弹幕内容相同，合并处理。')
             return
         mode = self._classify(message, now)
         if mode:
             if message.source in ('voice', 'danmaku') and len(text_key) >= 2:
-                self.recent_inputs.append((text_key, message.source, now, {'wake': 3, 'conversation': 2, 'echo': 1}[mode]))
-            previous = self.pending.get(mode)
-            if previous:
-                self.observe(previous.message.key, 'replaced', '已有更新的同类消息，跳过旧消息。')
-            self.pending[mode] = Job(message, mode, now, self.window, tuple(self.history))
+                self.recent_inputs.append((fingerprint, message.source, now, PRIORITY[mode]))
+            if any(PRIORITY[old.mode] > PRIORITY[mode] for old in self.pending.values()):
+                self.decision_reason = '已合并到本轮更高优先级回复，不单独接话。'
+                # Keep the extra information as context for the winning response.
+                for name, old in self.pending.items():
+                    self.pending[name] = replace(old, context=(*old.context, (message.name, message.text))[-10:])
+                mode = None
+            else:
+                for previous in self.pending.values():
+                    self.observe(previous.message.key, 'replaced', '同轮输入已合并，优先回复唤醒或更新消息。')
+                self.pending.clear()
+                self.pending[mode] = Job(message, mode, now, self.window, tuple(self.history))
         self.observe(message.key, 'queued' if mode else 'skipped', self.decision_reason,
                      mode=mode or '', keyword=self.matched_keyword)
         if message.source != "vision":
             self.history.append((message.name, message.text))
 
+    @staticmethod
+    def _same_input(left, right):
+        if left[1] != right[1]:
+            return False
+        left, right = left[0], right[0]
+        return left == right or (
+            min(len(left), len(right)) >= 10
+            and max(len(left), len(right)) <= 200
+            and SequenceMatcher(None, left, right, autojunk=False).ratio() >= 0.9
+        )
+
     def _classify(self, message, now):
         settings = self.settings
         text = message.text
         if message.source == "vision":
+            if not settings.vision_echo:
+                self.decision_reason = '画面仅辅助回答，不单独触发回复。'
+                return None
             self.decision_reason = '接话窗口内的画面仅作为回复参考。'
             return None if self.window_active(now) else self._echo(text, now)
+        if message.source == "voice" and not self._keyword(message) and not settings.voice_followup:
+            self.decision_reason = '语音仅作上下文，明确喊唤醒词才回复。'
+            return None
         if not settings.keyword_mode:
+            if message.source == "voice" and self._keyword(message):
+                self.matched_keyword = self._keyword(message)
+                self.decision_reason = '语音命中唤醒词，等待回复。'
+                return "wake"
             self.decision_reason = '关键词模式已关闭，进入对话。'
             return "conversation" if message.source == "danmaku" else self._echo(text, now)
         keywords = settings.keywords + (settings.voice_aliases if message.source == 'voice' else ())
@@ -184,12 +230,19 @@ class Conversation:
                 self.window += 1
                 self.window_started = now
                 self.window_until = now + min(settings.window_seconds, settings.window_limit)
+                self.participants.clear()
+            if message.source == "danmaku" and message.uid:
+                self.participants.add(message.uid)
             previous = self.pending.pop("echo", None)
             if previous:
                 self.observe(previous.message.key, 'replaced', '优先处理唤醒消息，取消待处理附和。')
             self.decision_reason = '命中唤醒词，等待回复。'
             return "wake"
         if self.window_active(now):
+            if (message.source == "danmaku" and settings.followup_scope == "speaker"
+                    and message.uid not in self.participants):
+                self.decision_reason = '当前窗口只接已唤醒观众的话，其他弹幕仅作上下文。'
+                return None
             self.decision_reason = '在接话窗口内，等待回复。'
             return "conversation"
         return self._echo(text, now)
@@ -211,6 +264,8 @@ class Conversation:
 
     def is_current(self, job: Job, now: float):
         if now - job.offered_at >= MAX_JOB_AGE:
+            return False
+        if any(PRIORITY[pending.mode] > PRIORITY[job.mode] for pending in self.pending.values()):
             return False
         if not self.settings.keyword_mode:
             return True
@@ -247,9 +302,13 @@ class Conversation:
     def sent(self, job: Job, now: float, text=""):
         if text:
             self.history.append(("Bot", text))
-        if job.mode == "echo":
-            self.last_echo = now
-        elif self.settings.keyword_mode and self.is_current(job, now) and self.window_active(now):
+        # Any successful reply counts as participation: never immediately echo after it.
+        self.last_echo = now
+        for mode, pending in list(self.pending.items()):
+            if mode != "wake" and PRIORITY[mode] <= PRIORITY[job.mode] and pending.offered_at <= now:
+                self.pending.pop(mode)
+                self.observe(pending.message.key, 'replaced', '本轮已经回复，合并生成期间收到的接话或附和。')
+        if job.mode != "echo" and self.settings.keyword_mode and self.is_current(job, now) and self.window_active(now):
             self.window_until = min(
                 self.window_until + self.settings.window_extension,
                 self.window_started + self.settings.window_limit,

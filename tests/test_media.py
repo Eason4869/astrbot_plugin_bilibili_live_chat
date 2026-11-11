@@ -22,6 +22,7 @@ class MediaTests(unittest.IsolatedAsyncioTestCase):
 
         chat = Conversation(ConversationSettings.from_config({
             "KEYWORDS": ["小猫"], "ECHO_ENABLED": True, "ECHO_INTERVAL_SECONDS": 180,
+            "VOICE_FOLLOWUP_ENABLED": True, "VISION_ECHO_ENABLED": True, "FOLLOWUP_SCOPE": "room",
         }), lambda: 0)
         chat.offer(RoomEvent("1", "", "直播画面", "画面明显变化", "vision", b"jpeg"), 0)
         self.assertEqual(chat.take(0).mode, "echo")

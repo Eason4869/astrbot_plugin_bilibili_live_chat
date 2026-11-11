@@ -1,7 +1,7 @@
 name: astrbot_plugin_bilibili_live_chat
 display_name: B 站直播间对话
 desc: 多直播间弹幕与音视频识别，支持语音唤醒、网页扫码和 BiliBot 联动。
-version: "0.7.0"
+version: "0.8.0"
 author: Eason4869
 repo: https://github.com/Eason4869/astrbot_plugin_bilibili_live_chat
 astrbot_version: ">=4.5.7"

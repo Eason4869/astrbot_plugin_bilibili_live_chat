@@ -4,21 +4,28 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>直播间对话</title>
+  <title>直播间对话 · 控制台</title>
   <link rel="icon" type="image/png" href="./logo.png">
   <link rel="stylesheet" href="./style.css">
   <script type="module" src="./app.js"></script>
 </head>
 <body>
-  <main>
-    <header class="top"><div class="crumb">AstrBot / <strong>插件控制台</strong></div><div class="header-actions"><button id="open-selfcheck" class="action" type="button">环境自检</button><button id="reload" class="action" type="button">刷新</button></div></header>
-    <div class="header-title">
-      <img class="brand-logo" src="./logo.png" alt="" width="64" height="64">
-      <h1>直播间对话</h1>
-    </div>
-    <p class="intro">添加直播间，逐个开启监听。重载插件后会恢复已开启的房间。</p>
+<main class="app-shell">
+  <aside class="sidebar">
+    <a class="brand" href="#rooms"><img src="./logo.png" alt="" width="44" height="44"><span><strong>直播间对话</strong><small>AstrBot 插件控制台</small></span></a>
+    <nav class="main-nav" aria-label="控制台分区">
+      <button type="button" data-view-target="rooms" aria-current="page"><span>直播间</span><small>监听与实时调试</small></button>
+      <button type="button" data-view-target="strategy"><span>回复策略</span><small>唤醒、输入与频率</small></button>
+      <button type="button" data-view-target="models"><span>模型与提示词</span><small>理解能力与说话方式</small></button>
+      <button type="button" data-view-target="account"><span>账号连接</span><small>登录与记忆联动</small></button>
+    </nav>
+    <div class="sidebar-note"><span class="signal-dot"></span><div><strong id="nav-status">正在读取状态</strong><p>文字、语音与画面<br>共用一套回复节奏</p></div></div>
+  </aside>
+  <div class="workspace">
+    <header class="top"><div class="crumb">控制台 / <strong id="view-crumb">直播间</strong></div><div class="header-actions"><button id="open-selfcheck" class="action" type="button">环境自检</button><button id="reload" class="action" type="button">刷新状态</button></div></header>
+    <div class="page-heading"><h1 id="view-title" tabindex="-1">陪伴直播，恰好一句</h1><p class="intro" id="view-description">添加直播间，观察输入与回复，再开启自然的直播互动。</p></div>
     <p id="connection" class="alert" role="status">正在读取插件状态…</p>
-    <section id="selfcheck" class="panel pad selfcheck" aria-labelledby="selfcheck-title" hidden>
+<section id="selfcheck" class="panel pad selfcheck" aria-labelledby="selfcheck-title" hidden>
       <div class="panel-title"><h2 id="selfcheck-title">远端环境自检</h2><span class="caption" id="selfcheck-phase">尚未检查</span></div>
       <p class="caption">使用已保存的配置，检查 FFmpeg 并向所选模型发送内置测试音频和图片，可能产生少量模型用量。</p>
       <div class="selfcheck-controls">
@@ -28,15 +35,13 @@
       <p id="selfcheck-error" class="alert" role="status" hidden></p>
       <div id="selfcheck-results" class="selfcheck-results" aria-live="polite"></div>
     </section>
-    <div class="workbench">
-      <div class="stack">
-        <section class="panel pad" id="overview" aria-labelledby="overview-title">
-          <div class="panel-title"><h2 id="overview-title">直播间</h2><span class="caption" id="room-summary">读取中</span></div>
+<section class="panel pad" id="overview" data-view="rooms" aria-labelledby="overview-title">
+          <div class="panel-title"><h2 id="overview-title">我的直播间</h2><span class="caption" id="room-summary">读取中</span></div>
           <form class="add-room" id="add-room">
             <label class="field"><span>直播间房间号</span><input id="new-room" type="text" inputmode="numeric" maxlength="20" pattern="[0-9]+" placeholder="例如 246810" required disabled></label>
             <button class="action primary" id="add-room-button" type="submit" disabled>添加直播间</button>
           </form>
-          <p class="room-empty caption" id="rooms-empty">还没有直播间。</p>
+          <p class="room-empty caption" id="rooms-empty">添加一个直播间开始配置，建议先开启「只预览」观察回复。</p>
           <div id="rooms" class="rooms"></div>
           <template id="room-template">
             <article class="room">
@@ -61,7 +66,7 @@
                 <p class="alert" data-part="preview-error" role="status" hidden></p>
               </div>
               <details class="room-debug" data-part="debug">
-                <summary>实时调试 <span class="caption" data-part="debug-summary">输入、回复与分阶段耗时</span></summary>
+                <summary>查看输入与回复 <span class="caption" data-part="debug-summary">输入、回复与分阶段耗时</span></summary>
                 <div class="debug-toolbar"><span class="caption" data-part="debug-state" role="status">展开后读取最近记录。</span><button class="action" type="button" data-part="debug-pause">暂停刷新</button></div>
                 <p class="alert" data-part="debug-error" role="status" hidden></p>
                 <p class="caption debug-scope">仅保留本次连接最近 50 条，重连或重启后清空。耗时从插件本机收到输入起算，不包含直播平台的传输延迟。</p>
@@ -74,7 +79,7 @@
                 <ol class="debug-events" data-part="debug-events" aria-label="最近处理记录"></ol>
               </details>
               <details class="dialogue-settings">
-                <summary>本房间对话配置 <span class="caption" data-part="dialogue-summary">继承共享设置</span></summary>
+                <summary>房间独立策略 <span class="caption" data-part="dialogue-summary">继承共享设置</span></summary>
                 <p class="caption">取消某项「继承共享」即可单独设置。保存只重启本房间。</p>
                 <form data-part="dialogue-form"><fieldset>
                   <div class="fields" data-part="dialogue-fields"></div>
@@ -84,12 +89,12 @@
                 </fieldset></form>
               </details>
               <details class="media-settings">
-                <summary>音视频识别 <span class="caption" data-part="media-summary">未启用</span></summary>
-                <form data-part="media-form">
+                <summary>语音与画面 <span class="caption" data-part="media-summary">未启用</span></summary>
+                <p class="caption section-note">开启识别不等于自动发言。默认语音需喊唤醒词，画面只辅助回答；主动参与规则在回复策略中设置。</p><form data-part="media-form">
                   <fieldset>
                     <div class="fields">
                       <label class="preference">语音识别<input class="switch" type="checkbox" name="audio"></label>
-                      <label class="preference">视频识别<input class="switch" type="checkbox" name="video"></label>
+                      <label class="preference">画面识别<input class="switch" type="checkbox" name="video"></label>
                       <label class="field"><span>语音识别模型</span><select name="stt_provider"></select></label>
                       <label class="field"><span>视觉模型</span><select name="vision_provider"></select></label>
                       <label class="field"><span>语音片段上限（秒）</span><input name="audio_segment" type="number" min="3" max="15" required></label>
@@ -97,8 +102,8 @@
                       <label class="field"><span>画面变化阈值（越低越敏感）</span><input name="scene_threshold" type="number" min="1" max="100" required></label>
                       <label class="field"><span>连续确认帧数</span><input name="scene_confirm_frames" type="number" min="1" max="5" required></label>
                       <label class="field field-wide"><span>画面忽略区域（每行 x1,y1,x2,y2，百分比）</span><textarea name="ignored_regions" rows="2" placeholder="例如忽略底部字幕：0,80,100,100"></textarea><small class="caption">仅影响变化检测，看图模型仍接收原始截图。</small></label>
-                      <label class="field"><span>附和间隔（秒）</span><input name="echo_interval" type="number" min="10" max="3600" placeholder="继承共享设置"></label>
-                      <label class="field"><span>附和概率</span><input name="echo_probability" type="number" min="0" max="1" step="any" placeholder="继承共享设置"></label>
+                      <label class="field"><span>本房间附和间隔（秒）</span><input name="echo_interval" type="number" min="10" max="3600" placeholder="继承共享设置"></label>
+                      <label class="field"><span>本房间附和概率</span><input name="echo_probability" type="number" min="0" max="1" step="any" placeholder="继承共享设置"></label>
                     </div>
                     <div class="form-foot"><span class="caption" data-part="media-status"></span><button class="action" type="submit">保存房间设置</button></div>
                     <ul class="issues" data-part="media-issues" hidden></ul>
@@ -108,53 +113,85 @@
             </article>
           </template>
         </section>
-        <section class="panel pad" id="dialogue" aria-labelledby="dialogue-title">
-          <div class="panel-title"><h2 id="dialogue-title">对话设置</h2><span class="caption">所有直播间共用</span></div>
-          <form id="settings">
-            <fieldset id="configuration" disabled>
-              <div class="fields">
-                <label class="field"><span>AstrBot 聊天模型</span><select id="provider" data-field="MODEL_PROVIDER_ID"><option value="">选择聊天模型</option></select></label>
-                <label class="field"><span>复用 AstrBot 人格</span><select id="persona" data-field="ASTRBOT_PERSONA_ID"><option value="">不复用人格</option></select></label>
-              </div>
-              <div class="field keywords"><label for="keyword">自定义唤醒词</label>
-                <div class="chipbox" id="chips"><input id="keyword" maxlength="80" placeholder="输入词语并回车"><button class="action" id="add-word" type="button">添加</button></div>
-              </div>
-              <div class="form-foot"><span id="window-hint" class="caption">喊中任一唤醒词后可继续接话。</span><button class="action primary" type="submit">保存设置</button></div>
-              <details>
-                <summary>高级设置</summary>
-                <div class="fields">
-                  <label class="preference field-wide">关键词唤醒模式<input class="switch" data-field="KEYWORD_MODE" type="checkbox"></label>
-                  <label class="field field-wide"><span>弹幕监听方式</span><select data-field="LISTEN_MODE"><option value="poll">轮询</option><option value="auto">长连接优先（失败轮询回退）</option></select></label>
-                  <label class="field field-wide"><span>语音唤醒别名（每行一个，仅用于语音）</span><textarea data-field="VOICE_KEYWORD_ALIASES" rows="2" placeholder="填入转写时常出现的同音词"></textarea></label>
-                  <label class="field"><span>语音与弹幕去重窗口（秒，0 关闭）</span><input data-field="CROSS_SOURCE_DEDUP_SECONDS" type="number" min="0" max="30" step="0.1" required></label>
-                  <label class="preference field-wide">智能附和判断<input class="switch" data-field="ECHO_DECISION_ENABLED" type="checkbox"></label>
-                  <label class="field"><span>AstrBot 判断模型 ID（留空默认）</span><input data-field="ECHO_DECISION_PROVIDER_ID" type="text" maxlength="256"></label>
-                  <label class="field"><span>附和判断阈值</span><input data-field="ECHO_DECISION_THRESHOLD" type="number" min="0.5" max="1" step="0.05" required></label>
-                  <p class="caption field-wide" id="decision-status">判断接口不可用时沿用原附和规则。</p>
-                  <label class="field"><span>唤醒窗口（秒）</span><input data-field="WINDOW_SECONDS" type="number" min="0" max="3600" required></label>
-                  <label class="field"><span>成功回复续时（秒）</span><input data-field="WINDOW_EXTEND_SECONDS" type="number" min="0" max="3600" required></label>
-                  <label class="field"><span>单轮上限（秒）</span><input data-field="WINDOW_MAX_SECONDS" type="number" min="1" max="7200" required></label>
-                  <label class="preference field-wide">窗口外低频附和<input class="switch" data-field="ECHO_ENABLED" type="checkbox"></label>
-                  <label class="field"><span>附和间隔（秒）</span><input data-field="ECHO_INTERVAL_SECONDS" type="number" min="10" max="3600" required></label>
-                  <label class="field"><span>附和概率</span><input data-field="ECHO_PROBABILITY" type="number" min="0" max="1" step="any" required></label>
-                  <label class="field"><span>发送冷却（秒）</span><input data-field="REPLY_COOLDOWN_SECONDS" type="number" min="2" max="120" required></label>
-                  <label class="field"><span>每分钟发送上限</span><input data-field="MAX_PER_MINUTE" type="number" min="1" max="30" required></label>
-                  <label class="field"><span>单条回复字数</span><input data-field="MAX_REPLY_CHARS" type="number" min="2" max="40" required></label>
-                  <label class="field"><span>轮询间隔（秒）</span><input data-field="POLL_SECONDS" type="number" min="2" max="30" required></label>
-                  <label class="field"><span>模型超时（秒）</span><input data-field="MODEL_TIMEOUT_SECONDS" type="number" min="5" max="40" required></label>
-                  <label class="field field-wide"><span>FFmpeg 程序路径</span><input data-field="FFMPEG_PATH" maxlength="4096" placeholder="留空自动查找，找不到时使用依赖自带程序"><small class="caption" id="ffmpeg-status">正在查找 FFmpeg…</small></label>
-                  <label class="field field-wide"><span>忽略的 B 站 UID</span><input data-field="IGNORE_UIDS" placeholder="多个 UID 用逗号分隔"></label>
-                  <label class="field field-wide"><span>直播人格补充提示词</span><textarea data-field="PERSONA_PROMPT" rows="3" maxlength="4000"></textarea></label>
-                  <label class="field field-wide"><span>正式回复附加提示词</span><textarea data-field="REPLY_INSTRUCTION" rows="2" maxlength="2000"></textarea></label>
-                  <label class="field field-wide"><span>附和专用提示词</span><textarea data-field="ECHO_INSTRUCTION" rows="2" maxlength="2000"></textarea></label>
-                </div>
-              </details>
-            </fieldset>
-          </form>
-        </section>
-      </div>
-      <div class="stack">
-        <section class="panel pad" id="account" aria-labelledby="account-title">
+    <form id="settings"><fieldset id="configuration" disabled>
+    <div class="savebar" id="savebar" hidden><div><strong id="save-state" role="status">已保存</strong><small>共享设置保存后，会重新连接已开启的房间。</small></div><div class="save-actions"><button class="action" id="restore-settings" type="button">恢复已保存</button><button class="action primary" id="save-settings" type="submit">保存共享设置</button></div></div>
+
+<section class="panel pad settings-page" id="dialogue" data-view="strategy" aria-labelledby="dialogue-title" hidden>
+  <div class="panel-title"><div><h2 id="dialogue-title">让每一句都恰到好处</h2><p class="caption section-note">先选互动方式，再决定谁能唤醒、多久说一次。</p></div><span class="scope-label">共享默认策略</span></div>
+  <div class="preset-grid" role="group" aria-label="互动预设">
+    <button type="button" class="preset" data-preset="quiet" aria-pressed="false"><strong>点名回应</strong><span>每次都喊名字，安静陪伴</span></button>
+    <button type="button" class="preset" data-preset="balanced" aria-pressed="false"><strong>克制陪伴 <small>推荐</small></strong><span>喊醒后，短暂接同一人的话</span></button>
+    <button type="button" class="preset" data-preset="active" aria-pressed="false"><strong>话题参与</strong><span>短暂接全房间话，偶尔附和</span></button>
+  </div>
+  <p class="caption preset-note">选择预设只会填入表单，点击底部「保存共享设置」后生效。房间独立配置保持优先。</p>
+  <div class="settings-group">
+    <div class="group-heading"><h3>什么时候回应</h3><span id="window-hint" class="caption"></span></div>
+    <div class="fields">
+      <label class="preference field-wide"><span>先喊唤醒词 <small>关闭后，普通弹幕也能触发回复，发言会更频繁。</small></span><input class="switch" data-field="KEYWORD_MODE" type="checkbox"></label>
+      <div class="field field-wide keywords"><label for="keyword">唤醒词</label><div class="chipbox" id="chips"><input id="keyword" maxlength="80" placeholder="输入名字或称呼，按回车"><button class="action" id="add-word" type="button">添加</button></div><small class="caption">例如机器人的昵称。多个词任意命中即可，点击词条可移除。</small></div>
+      <label class="field"><span>唤醒后接谁的话</span><select data-field="FOLLOWUP_SCOPE"><option value="speaker">仅已唤醒的观众</option><option value="room">全房间观众</option></select></label>
+      <label class="field"><span>接话窗口（秒）</span><input data-field="WINDOW_SECONDS" type="number" min="0" max="3600" required><small class="caption">0 表示每条都需要唤醒词。</small></label>
+    </div>
+  </div>
+  <div class="settings-group">
+    <div class="group-heading"><h3>三种输入，一次回应</h3><span class="caption">共用发送额度</span></div>
+    <div class="source-policy">
+      <div><span class="source-badge">文</span><div><strong>观众弹幕</strong><p>按唤醒词与接话对象回应。</p></div></div>
+      <label><span class="source-badge">声</span><span><strong>语音连续接话与附和</strong><small>默认每次需明确唤醒；开启后，窗口内可接普通语音，窗口外仍受附和规则限制。</small></span><input class="switch" data-field="VOICE_FOLLOWUP_ENABLED" type="checkbox"></label>
+      <label><span class="source-badge">图</span><span><strong>画面变化主动附和</strong><small>默认只辅助回答看图问题；开启后可在窗口外低频点评画面。</small></span><input class="switch" data-field="VISION_ECHO_ENABLED" type="checkbox"></label>
+    </div>
+    <p class="caption section-note">语音与画面识别需在对应直播间开启。同轮候选合并，优先回应唤醒，不按输入来源连发。</p>
+  </div>
+  <div class="settings-group">
+    <div class="group-heading"><h3>控制发言频率</h3><span class="caption">同账号的所有房间共同限流</span></div>
+    <div class="fields three-columns">
+      <label class="field"><span>发送冷却（秒）</span><input data-field="REPLY_COOLDOWN_SECONDS" type="number" min="2" max="120" required></label>
+      <label class="field"><span>每分钟最多发送</span><input data-field="MAX_PER_MINUTE" type="number" min="1" max="30" required></label>
+      <label class="field"><span>每条最多字数</span><input data-field="MAX_REPLY_CHARS" type="number" min="2" max="40" required></label>
+      <label class="preference field-wide"><span>没有被喊时，偶尔附和 <small>总开关。所有成功回复都会推迟下一次附和。</small></span><input class="switch" data-field="ECHO_ENABLED" type="checkbox"></label>
+      <label class="field"><span>附和间隔（秒）</span><input data-field="ECHO_INTERVAL_SECONDS" type="number" min="10" max="3600" required></label>
+      <label class="field"><span>附和采样概率（0–1）</span><input data-field="ECHO_PROBABILITY" type="number" min="0" max="1" step="any" required></label>
+    </div>
+  </div>
+  <details class="advanced-settings"><summary>更多触发规则</summary><div class="fields">
+    <label class="field"><span>每次成功回复续时（秒）</span><input data-field="WINDOW_EXTEND_SECONDS" type="number" min="0" max="3600" required></label>
+    <label class="field"><span>单轮窗口上限（秒）</span><input data-field="WINDOW_MAX_SECONDS" type="number" min="1" max="7200" required></label>
+    <label class="field"><span>跨来源去重窗口（秒）</span><input data-field="CROSS_SOURCE_DEDUP_SECONDS" type="number" min="0" max="30" step="0.1" required><small class="caption">合并近期相同或长句轻微转写差异的语音与弹幕；0 关闭。</small></label>
+    <label class="field"><span>语音唤醒别名（每行一个）</span><textarea data-field="VOICE_KEYWORD_ALIASES" rows="2" placeholder="填入转写时常出现的同音词"></textarea></label>
+    <label class="field field-wide"><span>忽略的 B 站 UID</span><input data-field="IGNORE_UIDS" placeholder="多个 UID 用逗号分隔"></label>
+    <label class="preference field-wide"><span>由判断模型再筛选附和</span><input class="switch" data-field="ECHO_DECISION_ENABLED" type="checkbox"></label>
+    <label class="field"><span>AstrBot 判断模型 ID（留空默认）</span><input data-field="ECHO_DECISION_PROVIDER_ID" type="text" maxlength="256"></label>
+    <label class="field"><span>判断阈值</span><input data-field="ECHO_DECISION_THRESHOLD" type="number" min="0.5" max="1" step="0.05" required></label>
+    <p class="caption field-wide" id="decision-status">判断接口不可用时沿用原附和规则。</p>
+  </div></details>
+</section>
+
+<section class="panel pad settings-page" data-view="models" aria-labelledby="models-title" hidden>
+  <div class="panel-title"><div><h2 id="models-title">模型与表达</h2><p class="caption section-note">模型负责理解，人格负责语气，内置规则约束直播间发言分寸。</p></div><span class="scope-label">共享默认配置</span></div>
+  <div class="settings-group first-group"><h3>对话模型与人格</h3><div class="fields">
+    <label class="field"><span>AstrBot 聊天模型</span><select id="provider" data-field="MODEL_PROVIDER_ID"><option value="">选择聊天模型</option></select></label>
+    <label class="field"><span>复用 AstrBot 人格</span><select id="persona" data-field="ASTRBOT_PERSONA_ID"><option value="">不复用人格</option></select></label>
+  </div><p class="caption section-note">语音与视觉模型可在每个直播间单独选择。</p></div>
+  <div class="settings-group"><div class="group-heading"><h3>直播间额外提示词</h3><span class="state live">内置规则始终启用</span></div>
+    <div class="prompt-brief"><strong>简短回应，允许沉默，不抢话</strong><p>不逐条点评、不复述、不主动追问；语音和画面用于理解当前话题，不各自产生一条回复。</p></div>
+    <details class="builtin-rules"><summary>查看完整内置提示词</summary><pre id="builtin-prompt">读取中…</pre></details>
+    <p class="caption section-note">在下方补充风格即可，留空仍有完整的直播间规则。已有自定义内容会保留。</p>
+    <div class="fields">
+      <label class="field field-wide"><span>直播人格补充</span><textarea data-field="PERSONA_PROMPT" rows="4" maxlength="4000" placeholder="例如：语气轻松自然，像熟悉游戏的老观众，偶尔有一点幽默。"></textarea></label>
+      <label class="field field-wide"><span>被唤醒时的回复偏好</span><textarea data-field="REPLY_INSTRUCTION" rows="3" maxlength="2000" placeholder="例如：先说结论；没把握就坦诚说明，不反问。"></textarea></label>
+      <label class="field field-wide"><span>低频附和偏好</span><textarea data-field="ECHO_INSTRUCTION" rows="3" maxlength="2000" placeholder="例如：只有看到精彩操作或有趣反差时才简短附和，避免连续感叹。"></textarea></label>
+    </div>
+  </div>
+  <details class="advanced-settings"><summary>连接与运行参数</summary><div class="fields">
+    <label class="field"><span>弹幕监听方式</span><select data-field="LISTEN_MODE"><option value="poll">轮询</option><option value="auto">长连接优先（失败轮询回退）</option></select></label>
+    <label class="field"><span>轮询间隔（秒）</span><input data-field="POLL_SECONDS" type="number" min="2" max="30" required></label>
+    <label class="field"><span>模型超时（秒）</span><input data-field="MODEL_TIMEOUT_SECONDS" type="number" min="5" max="40" required></label>
+    <label class="field field-wide"><span>FFmpeg 程序路径</span><input data-field="FFMPEG_PATH" maxlength="4096" placeholder="留空自动查找"><small class="caption" id="ffmpeg-status">正在查找 FFmpeg…</small></label>
+  </div></details>
+</section>
+
+    </fieldset></form>
+<section class="panel pad" id="account" data-view="account" hidden aria-labelledby="account-title">
           <div class="panel-title"><h2 id="account-title">账号连接</h2><span class="state" id="account-state">读取中</span></div>
           <div class="tabs" role="tablist" aria-label="登录来源">
             <button id="tab-local" class="tab" type="button" role="tab" aria-controls="local" aria-selected="true">独立扫码</button>
@@ -183,9 +220,8 @@
           </label>
           <details class="link-inspection"><summary>BiliBot 联动兼容检查</summary><p class="caption" id="link-version"></p><p class="caption">只读检查接口与配置，不登录、不查询或写入测试记忆。远端服务可用性需在实际调用时确认。</p><ul id="link-status" class="compatibility-list"></ul></details>
         </section>
-      </div>
-    </div>
-  </main>
-  <div class="toast" id="toast" role="status" hidden></div>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
 </body>
 </html>

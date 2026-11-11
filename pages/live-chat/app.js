@@ -19,6 +19,36 @@ const state = {
 };
 const roomDebug = createRoomDebug({ call, mutate, showStatus, notice, busy: () => state.busy });
 const roomSettings = createRoomSettings({ call, mutate, showStatus, notice, setMediaForm, mediaDirty });
+const presets = {
+  quiet: { KEYWORD_MODE: true, FOLLOWUP_SCOPE: "speaker", WINDOW_SECONDS: 0, WINDOW_EXTEND_SECONDS: 0, WINDOW_MAX_SECONDS: 90, VOICE_FOLLOWUP_ENABLED: false, VISION_ECHO_ENABLED: false, ECHO_ENABLED: false, ECHO_INTERVAL_SECONDS: 300, ECHO_PROBABILITY: 0.2, REPLY_COOLDOWN_SECONDS: 20, MAX_PER_MINUTE: 2 },
+  balanced: { KEYWORD_MODE: true, FOLLOWUP_SCOPE: "speaker", WINDOW_SECONDS: 30, WINDOW_EXTEND_SECONDS: 0, WINDOW_MAX_SECONDS: 90, VOICE_FOLLOWUP_ENABLED: false, VISION_ECHO_ENABLED: false, ECHO_ENABLED: false, ECHO_INTERVAL_SECONDS: 300, ECHO_PROBABILITY: 0.2, REPLY_COOLDOWN_SECONDS: 20, MAX_PER_MINUTE: 2 },
+  active: { KEYWORD_MODE: true, FOLLOWUP_SCOPE: "room", WINDOW_SECONDS: 45, WINDOW_EXTEND_SECONDS: 0, WINDOW_MAX_SECONDS: 90, VOICE_FOLLOWUP_ENABLED: true, VISION_ECHO_ENABLED: false, ECHO_ENABLED: true, ECHO_INTERVAL_SECONDS: 180, ECHO_PROBABILITY: 0.3, REPLY_COOLDOWN_SECONDS: 15, MAX_PER_MINUTE: 3 },
+};
+const views = {
+  rooms: ["直播间", "陪伴直播，恰好一句", "管理直播间，观察输入与回复，再开启自然的直播互动。"],
+  strategy: ["回复策略", "把握说话的分寸", "让弹幕、语音和画面一起理解话题，共用一套克制的回复节奏。"],
+  models: ["模型与提示词", "听懂话，也懂分寸", "选择理解话题的模型，用提示词调整机器人的表达。"],
+  account: ["账号连接", "连接你的直播身份", "登录用于发送弹幕的 B 站账号，按需联动直播记忆。"],
+};
+let activeView = "rooms";
+
+function showView(key, focus = false) {
+  if (!Object.hasOwn(views, key)) key = "rooms";
+  activeView = key;
+  for (const panel of document.querySelectorAll("[data-view]")) panel.hidden = panel.dataset.view !== key;
+  for (const button of document.querySelectorAll("[data-view-target]")) {
+    if (button.dataset.viewTarget === key) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
+  const [label, title, description] = views[key];
+  $("view-crumb").textContent = label;
+  $("view-title").textContent = title;
+  $("view-description").textContent = description;
+  $("savebar").hidden = !["strategy", "models"].includes(key);
+  if (key === "rooms") roomDebug.resume(); else roomDebug.suspend();
+  if (location.hash !== "#" + key) history.replaceState(null, "", "#" + key);
+  if (focus) { $("view-title").focus({ preventScroll: true }); window.scrollTo(0, 0); }
+}
 
 async function call(endpoint, payload) {
   if (!bridge) throw new Error("请从 AstrBot 管理面板的插件视图打开此页面。");
@@ -56,6 +86,8 @@ function controls() {
   const locked = state.busy || !snapshot;
   $("reload").disabled = state.busy;
   $("configuration").disabled = locked;
+  $("save-settings").disabled = locked;
+  $("restore-settings").disabled = locked;
   $("new-room").disabled = locked;
   $("add-room-button").disabled = locked;
   for (const button of $("rooms").querySelectorAll("[data-room-action]")) button.disabled = locked;
@@ -225,6 +257,10 @@ function showMedia(row, room) {
 
 function showStatus(snapshot) {
   state.snapshot = snapshot;
+  $("builtin-prompt").textContent = snapshot.builtin_prompt || "请重载插件以读取内置直播间提示词。";
+  const enabledCount = snapshot.rooms.filter(room => room.enabled).length;
+  $("nav-status").textContent = enabledCount ? enabledCount + " 个房间已开启" : "尚未开启监听";
+  $("nav-status").closest(".sidebar-note").classList.toggle("is-live", enabledCount > 0);
   roomSettings.configure(snapshot, state.visionProviders, [...$("persona").options].filter(option => option.value).map(option => ({ id: option.value, label: option.textContent })));
   $("decision-status").textContent = snapshot.environment?.decision?.message || "判断接口不可用时沿用原附和规则。";
   const link = snapshot.link;
@@ -316,6 +352,7 @@ function addWord() {
   }
   input.value = "";
   renderWords();
+  hint();
 }
 
 function renderWords() {
@@ -330,6 +367,7 @@ function renderWords() {
     button.addEventListener("click", () => {
       state.words.splice(index, 1);
       renderWords();
+      hint();
       input.focus();
     });
     input.before(button);
@@ -350,8 +388,15 @@ function renderOptions(select, options, placeholder, selected) {
 function hint() {
   const form = values();
   $("window-hint").textContent = !form.KEYWORD_MODE ? "普通弹幕也可以触发回复。"
-    : form.WINDOW_SECONDS > 0 ? "唤醒后可接话 " + form.WINDOW_SECONDS + " 秒。"
+    : form.WINDOW_SECONDS > 0 ? "唤醒后接话 " + form.WINDOW_SECONDS + " 秒。"
     : "只处理带唤醒词的弹幕。";
+  const changed = Object.keys(edits()).length + ($("keyword").value.trim() ? 1 : 0);
+  $("save-state").textContent = changed ? "有未保存的修改" : "已保存";
+  $("savebar").classList.toggle("is-dirty", Boolean(changed));
+  for (const button of document.querySelectorAll("[data-preset]")) {
+    const selected = Object.entries(presets[button.dataset.preset]).every(([key, value]) => form[key] === value);
+    button.setAttribute("aria-pressed", String(selected));
+  }
 }
 
 function values() {
@@ -545,6 +590,26 @@ $("keyword").addEventListener("keydown", event => {
 });
 $("add-word").addEventListener("click", addWord);
 $("settings").addEventListener("input", hint);
+$("settings").addEventListener("change", hint);
+for (const button of document.querySelectorAll("[data-view-target]")) {
+  button.addEventListener("click", () => showView(button.dataset.viewTarget, true));
+}
+window.addEventListener("hashchange", () => showView(location.hash.slice(1), true));
+for (const button of document.querySelectorAll("[data-preset]")) {
+  button.addEventListener("click", () => {
+    for (const [key, value] of Object.entries(presets[button.dataset.preset])) {
+      const field = formFields.find(field => field.dataset.field === key);
+      if (field.type === "checkbox") field.checked = value;
+      else field.value = value;
+    }
+    hint();
+    notice("预设已填入，保存共享设置后生效。");
+  });
+}
+$("restore-settings").addEventListener("click", () => {
+  setForm(state.snapshot.settings);
+  notice("已恢复保存的共享设置。");
+});
 $("settings").addEventListener("submit", event => {
   event.preventDefault();
   addWord();
@@ -561,6 +626,15 @@ $("settings").addEventListener("submit", event => {
     notice(hadEnabled ? "设置已保存，已开启的房间将按新设置继续监听。" : "设置已保存。");
   });
 });
+$("settings").addEventListener("invalid", event => {
+  // A shared form spans pages and collapsed groups: reveal invalid fields first.
+  const field = event.target;
+  const panel = field.closest("[data-view]");
+  if (panel) showView(panel.dataset.view);
+  for (let parent = field.parentElement; parent; parent = parent.parentElement) {
+    if (parent.tagName === "DETAILS") parent.open = true;
+  }
+}, true);
 $("add-room").addEventListener("submit", event => {
   event.preventDefault();
   const input = $("new-room");
@@ -682,7 +756,7 @@ window.addEventListener("pagehide", () => {
 });
 window.addEventListener("pageshow", event => {
   if (event.persisted) {
-    roomDebug.resume();
+    if (activeView === "rooms") roomDebug.resume();
     state.disposed = false;
     if (state.qrToken) nextQr(state.qrRevision);
     nextStatus();
@@ -691,6 +765,7 @@ window.addEventListener("pageshow", event => {
   }
 });
 
+showView(location.hash.slice(1));
 void load();
 document.addEventListener("visibilitychange", () => roomDebug.visibility());
 nextStatus();

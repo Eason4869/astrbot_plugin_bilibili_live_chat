@@ -74,7 +74,7 @@
     "description": "关键词唤醒模式",
     "type": "bool",
     "default": true,
-    "hint": "开启后先喊唤醒词，窗口内可继续接话。关闭后普通弹幕也能触发回复。"
+    "hint": "开启后先喊唤醒词，默认只接已唤醒观众的后续弹幕。关闭后普通弹幕也能触发回复。"
   },
   "KEYWORDS": {
     "description": "自定义唤醒词",
@@ -82,40 +82,53 @@
     "default": [],
     "hint": "每项填写一个词。支持多个词，忽略大小写和全半角差异。关键词模式下留空时无法启动。"
   },
+  "FOLLOWUP_SCOPE": {
+    "description": "窗口内接话对象", "type": "string", "default": "speaker",
+    "options": ["speaker", "room"], "labels": ["仅已唤醒的观众", "全房间"],
+    "hint": "默认不接其他观众的闲聊；其他观众仍可使用唤醒词单独加入。"
+  },
+  "VOICE_FOLLOWUP_ENABLED": {
+    "description": "语音连续接话与附和", "type": "bool", "default": false,
+    "hint": "关闭时语音每次需命中唤醒词；开启后窗口内可连续接话，窗口外仍需附和总开关。"
+  },
+  "VISION_ECHO_ENABLED": {
+    "description": "允许画面变化主动附和", "type": "bool", "default": false,
+    "hint": "默认画面只辅助回答；开启后明显变化才可参与低频附和，仍受附和总开关、间隔和概率限制。"
+  },
   "WINDOW_SECONDS": {
     "description": "唤醒窗口（秒）",
     "type": "int",
-    "default": 90,
+    "default": 30,
     "hint": "范围 0–3600，设为 0 时只回复带唤醒词的弹幕。"
   },
   "WINDOW_EXTEND_SECONDS": {
     "description": "成功回复后续时（秒）",
     "type": "int",
-    "default": 45,
+    "default": 0,
     "hint": "范围 0–3600。"
   },
   "WINDOW_MAX_SECONDS": {
     "description": "单轮唤醒窗口上限（秒）",
     "type": "int",
-    "default": 300,
+    "default": 90,
     "hint": "范围 1–7200，从首次唤醒起计算。"
   },
   "ECHO_ENABLED": {
     "description": "窗口外低频附和",
     "type": "bool",
     "default": false,
-    "hint": "只在关键词模式下生效，跳过明显的问题。"
+    "hint": "所有附和的总开关。跳过明显的问题；语音与画面还需各自开启主动参与选项。"
   },
   "ECHO_INTERVAL_SECONDS": {
     "description": "两次附和的最短间隔（秒）",
     "type": "int",
-    "default": 180,
+    "default": 300,
     "hint": "范围 10–3600。"
   },
   "ECHO_PROBABILITY": {
     "description": "可附和弹幕的采样概率",
     "type": "float",
-    "default": 0.5,
+    "default": 0.2,
     "hint": "范围 0–1。"
   },
   "ASTRBOT_PERSONA_ID": {
@@ -143,13 +156,13 @@
   "REPLY_COOLDOWN_SECONDS": {
     "description": "发送冷却（秒）",
     "type": "int",
-    "default": 12,
+    "default": 20,
     "hint": "范围 2–120，所有回复共用。"
   },
   "MAX_PER_MINUTE": {
     "description": "每分钟发送尝试上限",
     "type": "int",
-    "default": 4,
+    "default": 2,
     "hint": "范围 1–30。"
   },
   "MAX_REPLY_CHARS": {

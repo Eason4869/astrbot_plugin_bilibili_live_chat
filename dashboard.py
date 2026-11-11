@@ -8,6 +8,7 @@ from secrets import token_urlsafe
 from .bilibili import AuthExpired, BilibiliError, uid_text
 from .decision import decision_status
 from .media import MediaError, resolve_ffmpeg
+from .prompts import LIVE_ROOM_PROMPT
 from .rooms import RoomError
 
 NUMBER_LIMITS = {
@@ -36,6 +37,7 @@ PUBLIC_FIELDS = (
     "AUTH_SOURCE", "KEYWORDS", "IGNORE_UIDS", "KEYWORD_MODE",
     "ECHO_ENABLED", "BILIBOT_MEMORY_ENABLED", *TEXT_LIMITS, *NUMBER_LIMITS,
     'VOICE_KEYWORD_ALIASES', 'ECHO_DECISION_ENABLED', 'LISTEN_MODE',
+    'FOLLOWUP_SCOPE', 'VOICE_FOLLOWUP_ENABLED', 'VISION_ECHO_ENABLED',
 )
 SCHEMA = json.loads(Path(__file__).with_name("_conf_schema.json").read_text(encoding="utf-8"))
 
@@ -76,6 +78,8 @@ def validated_settings(payload):
             raise DashboardError("请选择有效的登录来源。")
         if key == 'LISTEN_MODE' and value not in ('poll', 'auto'):
             raise DashboardError('请选择轮询或长连接优先。')
+        if key == 'FOLLOWUP_SCOPE' and value not in ('speaker', 'room'):
+            raise DashboardError('请选择仅唤醒观众或全房间接话。')
         result[key] = value
     return result
 
@@ -103,6 +107,7 @@ class Dashboard:
         return {
             "environment": {"ffmpeg": ffmpeg, 'decision': decision_status(bot.context)},
             'link': bot.link.status(),
+            'builtin_prompt': LIVE_ROOM_PROMPT,
             "settings": {key: bot.config.get(key, SCHEMA[key]["default"]) for key in PUBLIC_FIELDS},
             "account": {
                 "source": bot._auth_source(),

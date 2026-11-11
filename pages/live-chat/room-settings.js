@@ -3,6 +3,9 @@ const fields = [
   ["MODEL_PROVIDER_ID", "聊天模型", "model"], ["ASTRBOT_PERSONA_ID", "AstrBot 人格", "persona"],
   ["KEYWORDS", "唤醒词（每行一个）", "list"], ["VOICE_KEYWORD_ALIASES", "语音唤醒别名（每行一个）", "list"],
   ["KEYWORD_MODE", "关键词唤醒模式", "bool"], ["CROSS_SOURCE_DEDUP_SECONDS", "语音与弹幕去重窗口（秒）", "number", 0, 30],
+  ["FOLLOWUP_SCOPE", "窗口内接话对象", "scope"],
+  ["VOICE_FOLLOWUP_ENABLED", "语音连续接话与附和", "bool"],
+  ["VISION_ECHO_ENABLED", "画面变化主动附和", "bool"],
   ["ECHO_ENABLED", "本房间低频附和（受共享总开关限制）", "bool"], ["ECHO_DECISION_ENABLED", "智能附和判断", "bool"],
   ["ECHO_DECISION_PROVIDER_ID", "AstrBot 判断模型 ID（留空默认）", "text"],
   ["ECHO_DECISION_THRESHOLD", "附和判断阈值", "number", 0.5, 1],
@@ -23,6 +26,7 @@ export function createRoomSettings({ call, mutate, showStatus, notice, setMediaF
   }
   function setValue(field, kind, selected) {
     if (kind === "listen") field.replaceChildren(new Option("轮询", "poll"), new Option("长连接优先（失败轮询回退）", "auto"));
+    if (kind === "scope") field.replaceChildren(new Option("仅已唤醒的观众", "speaker"), new Option("全房间观众", "room"));
     if (kind === "model" || kind === "persona") {
       field.replaceChildren(new Option(kind === "model" ? "选择聊天模型" : "不复用人格", ""));
       for (const option of kind === "model" ? providers : personas) field.append(new Option(option.label, option.id));
@@ -58,6 +62,18 @@ export function createRoomSettings({ call, mutate, showStatus, notice, setMediaF
       const view = { row, room: room.id, fields: new Map(), saved: {}, latest: room.dialogue };
       views.set(room.id, view);
       const container = part(row, "dialogue-fields");
+      container.classList.remove("fields");
+      const groups = new Map();
+      for (const [id, label] of [["trigger", "唤醒与输入"], ["model", "模型与提示词"], ["echo", "低频附和"]]) {
+        const details = document.createElement("details");
+        details.className = "override-group";
+        details.open = id === "trigger";
+        const summary = document.createElement("summary");
+        summary.textContent = label;
+        const fields = document.createElement("div");
+        fields.className = "fields";
+        details.append(summary, fields); container.append(details); groups.set(id, fields);
+      }
       for (const [key, label, kind, min, max] of fields) {
         const wrapper = document.createElement("div");
         wrapper.className = "override-field" + (kind === "prompt" ? " field-wide" : "");
@@ -70,14 +86,15 @@ export function createRoomSettings({ call, mutate, showStatus, notice, setMediaF
         const fieldLabel = document.createElement("label");
         fieldLabel.className = "field";
         const caption = document.createElement("span"); caption.textContent = label;
-        const input = document.createElement(["model", "persona", "bool", "listen"].includes(kind) ? "select" : ["prompt", "list"].includes(kind) ? "textarea" : "input");
+        const input = document.createElement(["model", "persona", "bool", "listen", "scope"].includes(kind) ? "select" : ["prompt", "list"].includes(kind) ? "textarea" : "input");
         input.name = key;
         if (kind === "bool") input.append(new Option("开启", "true"), new Option("关闭", "false"));
         if (kind === "number") { input.type = "number"; input.min = min; input.max = max; input.step = "any"; input.required = true; }
         if (["prompt", "list"].includes(kind)) input.rows = 2;
         if (kind === "text") { input.type = "text"; input.maxLength = 256; }
         if (kind === "prompt") input.maxLength = key === "PERSONA_PROMPT" ? 4000 : 2000;
-        fieldLabel.append(caption, input); wrapper.append(toggleLabel, fieldLabel); container.append(wrapper);
+        const group = key.startsWith("ECHO_") ? "echo" : ["model", "persona", "prompt"].includes(kind) ? "model" : "trigger";
+        fieldLabel.append(caption, input); wrapper.append(toggleLabel, fieldLabel); groups.get(group).append(wrapper);
         view.fields.set(key, { input, inherit });
         inherit.addEventListener("change", () => {
           input.disabled = inherit.checked;
@@ -85,6 +102,11 @@ export function createRoomSettings({ call, mutate, showStatus, notice, setMediaF
         });
       }
       fill(view, room.dialogue);
+      part(row, "dialogue-form").addEventListener("invalid", event => {
+        for (let parent = event.target.parentElement; parent; parent = parent.parentElement) {
+          if (parent.tagName === "DETAILS") parent.open = true;
+        }
+      }, true);
       part(row, "dialogue-form").addEventListener("submit", event => {
         event.preventDefault();
         const settings = read(view, true);

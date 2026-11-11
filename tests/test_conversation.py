@@ -54,7 +54,7 @@ class ConversationTests(unittest.TestCase):
         self.assertFalse(chat.is_current(job, 100))
 
     def test_reply_extends_window_from_original_deadline(self):
-        chat = self.make()
+        chat = self.make(WINDOW_SECONDS=90, WINDOW_EXTEND_SECONDS=45, WINDOW_MAX_SECONDS=300)
         chat.offer(message("小猫"), 0)
         chat.sent(chat.take(1), 2)
         self.assertEqual(chat.window_until, 135)
