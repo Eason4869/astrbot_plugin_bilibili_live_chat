@@ -10,7 +10,15 @@ from dataclasses import dataclass, field, replace
 from difflib import SequenceMatcher
 
 MAX_JOB_AGE = 45
-QUESTION = re.compile(r"[?？]|为什么|怎么|如何|哪里|哪儿|是不是|有没有|能不能|要不要|该不该|[吗么呢]$")
+QUESTION = re.compile(
+    r"[?？]|为什么|怎么|如何|哪里|哪儿|是不是|有没有|能不能|要不要|该不该"
+    r"|(?:[吗么]|(?:你觉得|你认为|你说|然后|接下来|下一步)呢)[。！!…~～\s]*$"
+)
+EXCLAMATION = re.compile(r"怎么(?:这么|那么|如此)(?:厉害|精彩|可爱|好看|好听|好笑|帅|棒|萌)")
+ELLIPTICAL_QUESTION = re.compile(
+    r"(?:^|[，,。！!；;：:\s])(?:那|那么|还有|至于)?"
+    r"(?:[你您我他她它]|[你我他她]们|主播|观众|大家|别人|其他人|这[个些]|那[个些])呢[。！!…~～\s]*$"
+)
 CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
 PRIORITY = {"wake": 3, "conversation": 2, "echo": 1}
 MEANING_MARKERS = re.compile(
@@ -29,6 +37,11 @@ def bounded_number(config, key, default, low, high):
 
 def normalized_keyword(text):
     return unicodedata.normalize("NFKC", text).strip().casefold()
+
+
+def is_question(text):
+    # Remove common exclamations, but still reject question marks or a following question.
+    return bool(QUESTION.search(EXCLAMATION.sub("", text)) or ELLIPTICAL_QUESTION.search(text))
 
 
 @dataclass(frozen=True)
@@ -141,6 +154,7 @@ class Conversation:
         self.history: deque[tuple[str, str]] = deque(maxlen=10)
         self.pacing = pacing if pacing is not None else SendPacer()
         self.last_echo = float("-inf")
+        self.last_echo_attempt = float("-inf")
         self.observe = lambda *args, **kwargs: None
         self.decision_reason = ""
         self.matched_keyword = ""
@@ -251,9 +265,9 @@ class Conversation:
         settings = self.settings
         if not settings.echo_enabled:
             self.decision_reason = '窗口外低频附和未开启。'
-        elif now - self.last_echo < settings.echo_interval:
-            self.decision_reason = '低频附和仍在间隔内。'
-        elif QUESTION.search(text):
+        elif self.echo_delay(now):
+            self.decision_reason = f'低频附和仍在间隔或尝试冷却内，约 {self.echo_delay(now):.0f} 秒。'
+        elif is_question(text):
             self.decision_reason = '窗口外的明显提问不参与低频附和。'
         elif self.roll() >= settings.echo_probability:
             self.decision_reason = '本次未被低频附和采样选中。'
@@ -278,6 +292,11 @@ class Conversation:
     def delay(self, now: float):
         return self.pacing.delay(self.settings, now)
 
+    def echo_delay(self, now: float):
+        # Failed/silent attempts need a short throttle, not the full successful-reply interval.
+        return max(0, self.last_echo + self.settings.echo_interval - now,
+                   self.last_echo_attempt + min(60, self.settings.echo_interval) - now)
+
     def take(self, now: float):
         if self.delay(now):
             return None
@@ -289,10 +308,10 @@ class Conversation:
                 self.observe(job.message.key, 'expired', '消息已过期或接话窗口已结束。')
                 continue
             if mode == "echo":
-                if now - self.last_echo < self.settings.echo_interval:
-                    self.observe(job.message.key, 'skipped', '低频附和仍在间隔内。')
+                if self.echo_delay(now):
+                    self.observe(job.message.key, 'skipped', '低频附和仍在间隔或尝试冷却内。')
                     continue
-                self.last_echo = now
+                self.last_echo_attempt = now
             return job
         return None
 
@@ -329,7 +348,7 @@ def parse_reply(raw: str, mode: str, max_chars: int):
         return None
     reply = reply.strip()
     if mode == "echo":
-        if not 2 <= len(reply) <= min(15, max_chars) or QUESTION.search(reply) or re.search(r"[@＠]", reply):
+        if not 2 <= len(reply) <= min(15, max_chars) or is_question(reply) or re.search(r"[@＠]", reply):
             return None
     elif not 1 <= len(reply) <= max_chars:
         return None

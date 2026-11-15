@@ -25,6 +25,9 @@ class EchoDecision:
         self.threshold = bounded_number(config, "ECHO_DECISION_THRESHOLD", 0.7, 0.5, 1)
 
     async def check(self, job):
+        if job.message.source == "vision":
+            # yes_no only receives text; a generic scene-change marker cannot describe the frame.
+            return None, "画面候选跳过纯文字判断，由视觉模型决定是否附和。"
         try:
             method = getattr(getattr(self.context, "decision", None), "yes_no", None)
             if not callable(method):

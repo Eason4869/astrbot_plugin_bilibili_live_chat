@@ -338,7 +338,10 @@ class LiveChatPlugin(Star):
     async def _generate(self, job, provider, persona, formal, echo, max_chars, memory, *, image=None, visual_context=""):
         is_echo = job.mode == "echo"
         if is_echo:
-            behavior = f"只在适合时随口附和一句（2–{min(15, max_chars)} 字），不回答问题、不反问、不建议、不 @ 任何人。"
+            behavior = (
+                f"本次是未唤醒时的低频附和，无需被点名；围绕当前新内容的具体亮点随口说一句（2–{min(15, max_chars)} 字）。"
+                "不回答问题、不反问、不建议、不 @ 任何人；没有值得说的新内容时保持安静。"
+            )
         else:
             behavior = f"用一句最多 {max_chars} 字的中文接观众当前的话，优先回应当前弹幕。"
         system = (

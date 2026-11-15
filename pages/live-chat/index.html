@@ -149,7 +149,7 @@
       <label class="field"><span>每分钟最多发送</span><input data-field="MAX_PER_MINUTE" type="number" min="1" max="30" required></label>
       <label class="field"><span>每条最多字数</span><input data-field="MAX_REPLY_CHARS" type="number" min="2" max="40" required></label>
       <label class="preference field-wide"><span>没有被喊时，偶尔附和 <small>总开关。所有成功回复都会推迟下一次附和。</small></span><input class="switch" data-field="ECHO_ENABLED" type="checkbox"></label>
-      <label class="field"><span>附和间隔（秒）</span><input data-field="ECHO_INTERVAL_SECONDS" type="number" min="10" max="3600" required></label>
+      <label class="field"><span>成功回复后附和间隔（秒）</span><input data-field="ECHO_INTERVAL_SECONDS" type="number" min="10" max="3600" required></label>
       <label class="field"><span>附和采样概率（0–1）</span><input data-field="ECHO_PROBABILITY" type="number" min="0" max="1" step="any" required></label>
     </div>
   </div>
@@ -159,10 +159,11 @@
     <label class="field"><span>跨来源去重窗口（秒）</span><input data-field="CROSS_SOURCE_DEDUP_SECONDS" type="number" min="0" max="30" step="0.1" required><small class="caption">合并近期相同或长句轻微转写差异的语音与弹幕；0 关闭。</small></label>
     <label class="field"><span>语音唤醒别名（每行一个）</span><textarea data-field="VOICE_KEYWORD_ALIASES" rows="2" placeholder="填入转写时常出现的同音词"></textarea></label>
     <label class="field field-wide"><span>忽略的 B 站 UID</span><input data-field="IGNORE_UIDS" placeholder="多个 UID 用逗号分隔"></label>
-    <label class="preference field-wide"><span>由判断模型再筛选附和</span><input class="switch" data-field="ECHO_DECISION_ENABLED" type="checkbox"></label>
+    <label class="preference field-wide"><span>由判断模型再筛选文字与语音附和</span><input class="switch" data-field="ECHO_DECISION_ENABLED" type="checkbox"></label>
     <label class="field"><span>AstrBot 判断模型 ID（留空默认）</span><input data-field="ECHO_DECISION_PROVIDER_ID" type="text" maxlength="256"></label>
     <label class="field"><span>判断阈值</span><input data-field="ECHO_DECISION_THRESHOLD" type="number" min="0.5" max="1" step="0.05" required></label>
     <p class="caption field-wide" id="decision-status">判断接口不可用时沿用原附和规则。</p>
+    <p class="caption field-wide">画面直接交给视觉模型判断；未发出的附和尝试只冷却最多 60 秒，之后仍需新输入和采样。</p>
   </div></details>
 </section>
 

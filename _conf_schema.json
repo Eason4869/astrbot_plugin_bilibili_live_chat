@@ -42,7 +42,7 @@
   },
   "ECHO_DECISION_ENABLED": {
     "description": "智能附和判断", "type": "bool", "default": false,
-    "hint": "在低频附和选中后调用 AstrBot 判断模型；接口不可用或失败时沿用原附和逻辑。"
+    "hint": "对选中的文字或语音附和调用 AstrBot 判断模型；画面直接由视觉模型判断。接口不可用或失败时沿用原附和逻辑。"
   },
   "ECHO_DECISION_PROVIDER_ID": {
     "description": "附和判断模型 ID", "type": "string", "default": "",
@@ -117,13 +117,13 @@
     "description": "窗口外低频附和",
     "type": "bool",
     "default": false,
-    "hint": "所有附和的总开关。跳过明显的问题；语音与画面还需各自开启主动参与选项。"
+    "hint": "所有附和的总开关。无需先唤醒，遇到新内容时低频参与；跳过明显问题。语音与画面还需各自开启主动参与选项。"
   },
   "ECHO_INTERVAL_SECONDS": {
-    "description": "两次附和的最短间隔（秒）",
+    "description": "成功回复后附和的最短间隔（秒）",
     "type": "int",
     "default": 300,
-    "hint": "范围 10–3600。"
+    "hint": "范围 10–3600。任何成功回复都会推迟附和；未发出的尝试只冷却最多 60 秒，之后仍需新输入和采样。"
   },
   "ECHO_PROBABILITY": {
     "description": "可附和弹幕的采样概率",
